@@ -603,7 +603,7 @@ fn run(args: Args) {
                             if overlap {
                                 if prev_hunk == 0 || prev_hunk != h.old_start() {
                                     if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) {
-                                        println!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ==={}", pair[0], pair[1]);
+                                        print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", pair[0], pair[1]);
                                         pair = vec!["".to_string(), "".to_string()];
                                     }
                                     related_warnings.iter().for_each(|m| {
