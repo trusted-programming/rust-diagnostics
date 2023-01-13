@@ -102,7 +102,7 @@ from the compiler options.
 - [x] Make the `--patch <id>` feature to print out the patch of HEAD..<id>
 - [x] Print out the hunks only when they are relevant to the spans of warning locations
 - [x] Add a `--patch <id> --commit` option to print out the hunks only when they have been fixed by the revision <id>
-- [ ] Add an option `--pairs` to generate diff records into code pairs
+- [x] Add an option `--pair` to generate diff records into code pairs
 - [ ] Add an option `-W` to generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by 
       `libgit2`
 

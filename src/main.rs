@@ -48,6 +48,10 @@ struct Args {
     #[structopt(name = "confirm", long)]
     /// confirm whether the related warnings of current revision are indeed fixed by the patch
     confirm: bool,
+    #[structopt(name = "pair", long)]
+    /// display diff hunks as a pair separated by a special marker `=== 19a3477889393ea2cdd0edcb5e6ab30c ===`
+    /// which is the checksum by `echo rust-diagnostics | md5sum`
+    pair: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -578,6 +582,7 @@ fn run(args: Args) {
                     checkout(old_id);
                     prev_hunk = 0;
                     related_warnings = std::collections::HashSet::new();
+                    let mut pair = vec!["".to_string(), "".to_string()];
                     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
                         let p = delta.old_file().path().unwrap();
                         let mut overlap = false;
@@ -597,16 +602,50 @@ fn run(args: Args) {
                             });
                             if overlap {
                                 if prev_hunk == 0 || prev_hunk != h.old_start() {
+                                    if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) {
+                                        println!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ==={}", pair[0], pair[1]);
+                                        pair = vec!["".to_string(), "".to_string()];
+                                    }
                                     related_warnings.iter().for_each(|m| {
                                         println!("{}", m.name);
                                     });
                                     related_warnings = std::collections::HashSet::new();
                                 }
                                 match line.origin() {
-                                    ' ' | '+' | '-' => print!("{}", line.origin()),
-                                    _ => {}
+                                    ' ' => {
+                                        if args.pair {
+                                            pair[0] = format!("{}{}", pair[0], std::str::from_utf8(line.content()).unwrap());
+                                            pair[1] = format!("{}{}", pair[1], std::str::from_utf8(line.content()).unwrap());
+                                        } else {
+                                            print!("{}", line.origin());
+                                            print!("{}", std::str::from_utf8(line.content()).unwrap());
+                                        }
+                                    }, 
+                                    '+' => {
+                                        if args.pair {
+                                            pair[1] = format!("{}{}", pair[1], std::str::from_utf8(line.content()).unwrap());
+                                        } else {
+                                            print!("{}", line.origin());
+                                            print!("{}", std::str::from_utf8(line.content()).unwrap());
+                                        }
+                                    },
+                                    '-' => {
+                                        if args.pair {
+                                            pair[0] = format!("{}{}", pair[0], std::str::from_utf8(line.content()).unwrap());
+                                        } else {
+                                            print!("{}", line.origin());
+                                            print!("{}", std::str::from_utf8(line.content()).unwrap());
+                                        }
+                                    },
+                                    _ => {
+                                        if args.pair {
+                                            pair[0] = format!("{}{}", pair[0], std::str::from_utf8(line.content()).unwrap());
+                                            // pair[1] = format!("{}{}", pair[1], std::str::from_utf8(line.content()).unwrap());
+                                        } else {
+                                             print!("{}", std::str::from_utf8(line.content()).unwrap());
+                                        }
+                                    }
                                 }
-                                print!("{}", std::str::from_utf8(line.content()).unwrap());
                                 prev_hunk = h.old_start();
                                 true
                             } else {
@@ -618,6 +657,9 @@ fn run(args: Args) {
                         }
                     })
                     .ok();
+                    if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) {
+                        print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", pair[0], pair[1]);
+                    }
                 }
             }
         }
@@ -804,6 +846,7 @@ mod tests {
             flags: vec![],
             patch: None,
             confirm: false,
+            pair: false,
         };
         let dir = std::path::Path::new("abc");
         if dir.exists() {
@@ -936,6 +979,7 @@ fn main() {
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: debug_confirm,
+                pair: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -961,6 +1005,56 @@ fn main() {
 
     #[test]
     #[serial]
+    fn pair() {
+       if let Ok((cd, update_commit)) = setup(r#"
+fn main() {
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+"#,r#"
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"#) 
+        {
+            let debug_confirm = true;
+            let args = Args {
+                flags: vec![],
+                patch: Some(format!("{update_commit}")),
+                confirm: debug_confirm,
+                pair: true,
+            };
+            std::io::set_output_capture(Some(Default::default()));
+            run(args);
+            let captured = std::io::set_output_capture(None).unwrap();
+            let captured = Arc::try_unwrap(captured).unwrap();
+            let captured = captured.into_inner().unwrap();
+            let captured = String::from_utf8(captured).unwrap();
+            assert_eq!(captured, r###"There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+@@ -1,5 +1,6 @@
+
+fn main() {
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"###);
+            teardown(cd, update_commit);
+        }
+    }
+
+
+    #[test]
+    #[serial]
     fn unfixed() {
        if let Ok((cd, update_commit)) = setup(r#"
 fn main() {
@@ -978,6 +1072,7 @@ fn main() {
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
+                pair: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -1013,6 +1108,7 @@ fn main() {
                     flags: vec![],
                     patch: None,
                     confirm: false,
+                    pair: false,
                 };
                 run(args);
                 assert!(!std::path::Path::new("test/transform/Wclippy::unwrap_used/0.2.rs").exists());
