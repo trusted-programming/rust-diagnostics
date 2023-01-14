@@ -45,7 +45,7 @@ struct Args {
     /// display diff hunks as a pair separated by a special marker `=== 19a3477889393ea2cdd0edcb5e6ab30c ===`
     /// which is the checksum by `echo rust-diagnostics | md5sum`
     pair: bool,
-    #[structopt(name = "W", short)]
+    #[structopt(name = "function", long)]
     /// generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by `libgit2`
     function: bool,
 }
