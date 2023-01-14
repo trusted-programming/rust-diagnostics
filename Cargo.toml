@@ -17,17 +17,16 @@ cargo_metadata = "0.15.1"
 structopt = "0.3.26"
 serde = { version = "1.0.133", features = [ "derive" ] }
 git2 = { version = "0.15.0", optional = true }
-tree-sitter-parsers = { version = "0.0.5", optional = true }
-tree-sitter = { version = "0.20.9", optional = true}
-anyhow = { version = "1.0.52", optional = true}
-itertools = { version = "0.10.5", optional = true}
+tree-sitter-parsers = { version = "0.0.5" }
+tree-sitter = { version = "0.20.9" }
+anyhow = { version = "1.0.52" }
 txl-rs = { version = "0.0.3", optional = true}
 clap = { version = "3.2.23", optional = true}
 reqwest = { version = "0.11.13", features = ["blocking"], optional = true }
 
 [features]
 default = ["patch"]
-fix = [ "dep:tree-sitter", "dep:tree-sitter-parsers", "dep:anyhow", "dep:itertools", "dep:txl-rs", "dep:clap", "dep:reqwest" ]
+fix = [ "dep:txl-rs", "dep:clap", "dep:reqwest" ]
 rustc_flags = [ ]
 patch = ["dep:git2"]
 

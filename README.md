@@ -103,7 +103,7 @@ from the compiler options.
 - [x] Print out the hunks only when they are relevant to the spans of warning locations
 - [x] Add a `--patch <id> --commit` option to print out the hunks only when they have been fixed by the revision <id>
 - [x] Add an option `--pair` to generate diff records into code pairs
-- [ ] Add an option `-W` to generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by 
+- [x] Add an option `-W` to generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by 
       `libgit2`
 
 ## Acknowledgement

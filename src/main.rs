@@ -1,5 +1,5 @@
 #![feature(internal_output_capture)]
-use std::sync::Arc;
+use std::{sync::Arc};
 use cargo_metadata::{diagnostic::Diagnostic, Message};
 use serde::Serialize;
 use std::{
@@ -14,16 +14,9 @@ mod patch {
     use git2::{DiffFormat, Error, Pathspec};
 }
 
-#[cfg(fix)]
 mod language;
-
-#[cfg(fix)]
-mod fix {
-    use itertools::Itertools;
-    use std::num::Wrapping;
-    use tree_sitter::QueryCursor;
-    use tree_sitter_parsers::parse;
-}
+use tree_sitter::QueryCursor;
+use tree_sitter_parsers::parse;
 
 #[cfg(rustc_flags)]
 mod rustc_flags {
@@ -52,6 +45,9 @@ struct Args {
     /// display diff hunks as a pair separated by a special marker `=== 19a3477889393ea2cdd0edcb5e6ab30c ===`
     /// which is the checksum by `echo rust-diagnostics | md5sum`
     pair: bool,
+    #[structopt(name = "W", short)]
+    /// generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by `libgit2`
+    function: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -106,6 +102,9 @@ fn markup(source: &[u8], map: Vec<Ran>) -> Vec<u8> {
 }
 
 #[cfg(fix)]
+use std::num::Wrapping;
+
+#[cfg(fix)]
 // list the relevant rules as comments
 fn markup_rules(start: Wrapping<usize>, end: Wrapping<usize>, map: Vec<Ran>) -> Vec<u8> {
     let mut output = Vec::new();
@@ -121,76 +120,80 @@ fn markup_rules(start: Wrapping<usize>, end: Wrapping<usize>, map: Vec<Ran>) -> 
 pub struct ExtractedNode<'query> {
     name: &'query str,
     start_byte: usize,
+    start_line: usize,
     end_byte: usize,
+    end_line: usize,
 }
 
-#[cfg(fix)]
-mod fix {
-    use anyhow::Result;
-    // Split up the Rust source_file into individual items, indiced by their start_byte offsets
-    fn splitup(source: &[u8]) -> Result<HashMap<usize, &[u8]>> {
-        let mut output: HashMap<usize, &[u8]> = HashMap::new();
-        if let Ok(s) = std::str::from_utf8(source) {
-            let tree = parse(s, "rust");
-            if let Ok(query) = language::Language::Rust.parse_query(
-                "([
-      (const_item) @fn
-      (macro_invocation) @fn
-      (macro_definition) @fn
-      (empty_statement) @fn
-      (attribute_item) @fn
-      (inner_attribute_item) @fn
-      (mod_item) @fn
-      (foreign_mod_item) @fn
-      (struct_item) @fn
-      (union_item) @fn
-      (enum_item) @fn
-      (type_item) @fn
-      (function_item) @fn
-      (function_signature_item) @fn
-      (impl_item) @fn
-      (trait_item) @fn
-      (associated_type) @fn
-      (let_declaration) @fn
-      (use_declaration) @fn
-      (extern_crate_declaration) @fn
-      (static_item) @fn
-            ])",
-            ) {
-                let captures = query.capture_names().to_vec();
-                let mut cursor = QueryCursor::new();
-                let extracted = cursor
-                    .matches(&query, tree.root_node(), source)
-                    .flat_map(|query_match| query_match.captures)
-                    .map(|capture| {
-                        if let Ok(idx) = usize::try_from(capture.index) {
-                            let name = &captures[idx];
-                            let node = capture.node;
-                            Ok(ExtractedNode {
-                                name,
-                                start_byte: node.start_byte(),
-                                end_byte: node.end_byte(),
-                            })
+// Split up the Rust source_file into individual items, indiced by their start_byte offsets
+fn splitup(source: &[u8], by_line: bool) -> anyhow::Result<HashMap<usize, &[u8]>> {
+    let mut output: HashMap<usize, &[u8]> = HashMap::new();
+    if let Ok(s) = std::str::from_utf8(source) {
+        let tree = parse(s, "rust");
+        if let Ok(query) = language::Language::Rust.parse_query(
+            "([
+  (const_item) @fn
+  (attribute_item) @fn
+  (inner_attribute_item) @fn
+  (mod_item) @fn
+  (foreign_mod_item) @fn
+  (struct_item) @fn
+  (union_item) @fn
+  (enum_item) @fn
+  (type_item) @fn
+  (function_item) @fn
+  (function_signature_item) @fn
+  (impl_item) @fn
+  (trait_item) @fn
+  (static_item) @fn
+        ])",
+        ) {
+            let captures = query.capture_names().to_vec();
+            let mut cursor = QueryCursor::new();
+            let extracted = cursor
+                .matches(&query, tree.root_node(), source)
+                .flat_map(|query_match| query_match.captures)
+                .map(|capture| {
+                    if let Ok(idx) = usize::try_from(capture.index) {
+                        let name = &captures[idx];
+                        let node = capture.node;
+                        Ok(ExtractedNode {
+                            name,
+                            start_byte: node.start_byte(),
+                            start_line: node.start_position().row,
+                            end_byte: node.end_byte(),
+                            end_line: node.end_position().row,
+                        })
+                    } else {
+                        Ok(ExtractedNode {
+                            name: "",
+                            start_byte: 0,
+                            start_line: 0,
+                            end_byte: 0,
+                            end_line: 0,
+                        })
+                    }
+                })
+                .collect::<anyhow::Result<Vec<ExtractedNode>>>()?;
+            for m in extracted {
+                if m.name == "fn" {
+                    if let Ok(code) = std::str::from_utf8(&source[m.start_byte..m.end_byte]) {
+                        if by_line {
+                            output.insert(m.start_line, code.as_bytes());
                         } else {
-                            Ok(ExtractedNode {
-                                name: "",
-                                start_byte: 0,
-                                end_byte: 0,
-                            })
-                        }
-                    })
-                    .collect::<Result<Vec<ExtractedNode>>>()?;
-                for m in extracted {
-                    if m.name == "fn" {
-                        if let Ok(code) = std::str::from_utf8(&source[m.start_byte..m.end_byte]) {
                             output.insert(m.start_byte, code.as_bytes());
                         }
                     }
                 }
             }
         }
-        Ok(output)
     }
+    Ok(output)
+}
+
+#[cfg(fix)]
+mod fix {
+    use anyhow::Result;
     // restore the original file
     fn restore_original(file_name: &String, content: &String) {
         std::fs::write(file_name, content).ok();
@@ -583,8 +586,15 @@ fn run(args: Args) {
                     prev_hunk = 0;
                     related_warnings = std::collections::HashSet::new();
                     let mut pair = vec!["".to_string(), "".to_string()];
-                    diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
+                    let mut function_pair = vec!["".to_string(), "".to_string()];
+                    let mut prev_k: i32 = 0;
+                    diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
                         let p = delta.old_file().path().unwrap();
+                        let mut function_items = HashMap::new();
+                        let source = read_to_string(p).unwrap(); 
+                        if let Ok(items) = splitup(source.as_bytes(), true) {
+                            function_items = items;
+                        }
                         let mut overlap = false;
                         if let Some(h) = hunk {
                             all_warnings.iter_mut().for_each(|(k, v)| {
@@ -602,6 +612,35 @@ fn run(args: Args) {
                             });
                             if overlap {
                                 if prev_hunk == 0 || prev_hunk != h.old_start() {
+                                    if args.function && (! function_pair[0].is_empty() || !function_pair[1].is_empty()) {
+                                        // dbg!(&function_pair[0]);
+                                        // dbg!(&function_pair[1]);
+                                        let mut prev_f = "".to_string();
+                                        for k in function_items.keys() {
+                                            let v = function_items.get(k).unwrap();
+                                            prev_f = format!("{}", std::str::from_utf8(v).unwrap());
+                                            if k >= &usize::try_from(h.old_start()).unwrap() {
+                                                break;
+                                            }
+                                            prev_k = i32::try_from(*k).unwrap();
+                                        }
+                                        let lines: Vec<&str> = prev_f.split('\n').collect();
+                                        // dbg!(&lines);
+                                        let mut prefix = "".to_string();
+                                        let mut suffix = "".to_string();
+                                        for i in 0..usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_k - 1).unwrap() {
+                                            prefix = format!("{}{}", prefix, lines[i]);
+                                        }
+                                        for i in usize::try_from(i32::try_from(h.old_start()+ h.old_lines()).unwrap() - prev_k).unwrap()..lines.len() {
+                                            suffix = format!("{}{}", suffix, lines[i]);
+                                        }
+                                        // dbg!(&prefix);
+                                        // dbg!(&suffix);
+                                        function_pair[0] = format!("{}{}{}", prefix, function_pair[0], suffix);
+                                        function_pair[1] = format!("{}{}{}", prefix, function_pair[1], suffix);
+                                        print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", function_pair[0], function_pair[1]);
+                                        function_pair = vec!["".to_string(), "".to_string()];
+                                    }
                                     if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) {
                                         print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", pair[0], pair[1]);
                                         pair = vec!["".to_string(), "".to_string()];
@@ -611,38 +650,48 @@ fn run(args: Args) {
                                     });
                                     related_warnings = std::collections::HashSet::new();
                                 }
+                                let content = std::str::from_utf8(line.content()).unwrap();
                                 match line.origin() {
                                     ' ' => {
+                                        if args.function {
+                                            function_pair[0] = format!("{}{}", function_pair[0], content);
+                                            function_pair[1] = format!("{}{}", function_pair[1], content);
+                                        }
                                         if args.pair {
-                                            pair[0] = format!("{}{}", pair[0], std::str::from_utf8(line.content()).unwrap());
-                                            pair[1] = format!("{}{}", pair[1], std::str::from_utf8(line.content()).unwrap());
+                                            pair[0] = format!("{}{}", pair[0], content);
+                                            pair[1] = format!("{}{}", pair[1], content);
                                         } else {
                                             print!("{}", line.origin());
-                                            print!("{}", std::str::from_utf8(line.content()).unwrap());
+                                            print!("{}", content);
                                         }
                                     }, 
                                     '+' => {
+                                        if args.function {
+                                            function_pair[1] = format!("{}{}", function_pair[1], content);
+                                        }
                                         if args.pair {
-                                            pair[1] = format!("{}{}", pair[1], std::str::from_utf8(line.content()).unwrap());
+                                            pair[1] = format!("{}{}", pair[1], content);
                                         } else {
                                             print!("{}", line.origin());
-                                            print!("{}", std::str::from_utf8(line.content()).unwrap());
+                                            print!("{}", content);
                                         }
                                     },
-                                    '-' => {
+                                    '-' => { 
+                                        if args.function {
+                                            function_pair[0] =  format!("{}{}", function_pair[0], content);
+                                        }
                                         if args.pair {
-                                            pair[0] = format!("{}{}", pair[0], std::str::from_utf8(line.content()).unwrap());
+                                            pair[0] = format!("{}{}", pair[0], content);
                                         } else {
                                             print!("{}", line.origin());
-                                            print!("{}", std::str::from_utf8(line.content()).unwrap());
+                                            print!("{}", content);
                                         }
                                     },
-                                    _ => {
+                                    _ => { // @@
                                         if args.pair {
-                                            pair[0] = format!("{}{}", pair[0], std::str::from_utf8(line.content()).unwrap());
-                                            // pair[1] = format!("{}{}", pair[1], std::str::from_utf8(line.content()).unwrap());
+                                            pair[0] = format!("{}{}", pair[0], content);
                                         } else {
-                                             print!("{}", std::str::from_utf8(line.content()).unwrap());
+                                            print!("{}", content);
                                         }
                                     }
                                 }
@@ -658,7 +707,11 @@ fn run(args: Args) {
                     })
                     .ok();
                     if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) {
-                        print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", pair[0], pair[1]);
+                        if args.function {
+                            print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", function_pair[0], function_pair[1]);
+                        } else {
+                            print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", pair[0], pair[1]);
+                        }
                     }
                 }
             }
@@ -728,8 +781,8 @@ mod fix {
             .join(file);
         let input_markedup = &markup(input.as_bytes(), warnings);
         let output_markedup = &markup(output, remaining_warnings);
-        if let Ok(orig_items) = splitup(input_markedup) {
-            if let Ok(output_items) = splitup(output_markedup) {
+        if let Ok(orig_items) = splitup(input_markedup, false) {
+            if let Ok(output_items) = splitup(output_markedup, false) {
                 if let Some(t) = trans_name.parent() {
                     let path = PathBuf::from(&file);
                     if let Some(p) = path.file_stem() {
@@ -847,6 +900,7 @@ mod tests {
             patch: None,
             confirm: false,
             pair: false,
+            function: false,
         };
         let dir = std::path::Path::new("abc");
         if dir.exists() {
@@ -980,6 +1034,7 @@ fn main() {
                 patch: Some(format!("{update_commit}")),
                 confirm: debug_confirm,
                 pair: false,
+                function: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -1025,6 +1080,7 @@ fn main() {
                 patch: Some(format!("{update_commit}")),
                 confirm: debug_confirm,
                 pair: true,
+                function: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -1037,6 +1093,61 @@ fn main() {
 @@ -1,5 +1,6 @@
 
 fn main() {
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"###);
+            teardown(cd, update_commit);
+        }
+    }
+
+
+
+    #[test]
+    #[serial]
+    fn function() {
+       if let Ok((cd, update_commit)) = setup(r#"
+fn main() {
+
+
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+"#,r#"
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"#) 
+        {
+            let debug_confirm = true;
+            let args = Args {
+                flags: vec![],
+                patch: Some(format!("{update_commit}")),
+                confirm: debug_confirm,
+                pair: true,
+                function: true,
+            };
+            std::io::set_output_capture(Some(Default::default()));
+            run(args);
+            let captured = std::io::set_output_capture(None).unwrap();
+            let captured = Arc::try_unwrap(captured).unwrap();
+            let captured = captured.into_inner().unwrap();
+            let captured = String::from_utf8(captured).unwrap();
+            assert_eq!(captured, r###"There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+
+fn main() {
+
+
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
     println!("{s}");
 }
@@ -1073,6 +1184,7 @@ fn main() {
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
                 pair: false,
+                function: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -1109,6 +1221,7 @@ fn main() {
                     patch: None,
                     confirm: false,
                     pair: false,
+                    function: false,
                 };
                 run(args);
                 assert!(!std::path::Path::new("test/transform/Wclippy::unwrap_used/0.2.rs").exists());

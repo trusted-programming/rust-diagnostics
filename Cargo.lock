@@ -1457,7 +1457,6 @@ dependencies = [
  "cc",
  "clap 3.2.23",
  "git2",
- "itertools",
  "reqwest",
  "serde",
  "serial_test",
