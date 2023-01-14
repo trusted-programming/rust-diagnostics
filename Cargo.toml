@@ -6,7 +6,7 @@ authors = [
     "Yijun Yu <y.yu@open.ac.uk>",
 ]
 description = "A utility that embeds clippy diagnostics into Rust code."
-repository = "https://github.com/yijunyu/rust-diagnostics"
+repository = "https://github.com/trusted-programming/rust-diagnostics"
 documentation = "https://docs.rs/rust_diagnostics"
 keywords = ["clippy", "diagnostics"]
 license = "Apache-2.0"
