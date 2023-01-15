@@ -125,9 +125,16 @@ pub struct ExtractedNode<'query> {
     end_line: usize,
 }
 
+#[derive(PartialEq, Eq, Hash)]
+pub struct LineRange {
+    start_byte: usize,
+    start_line: usize,
+    end_line: usize,
+}
+
 // Split up the Rust source_file into individual items, indiced by their start_byte offsets
-fn splitup(source: &[u8], by_line: bool) -> anyhow::Result<HashMap<usize, &[u8]>> {
-    let mut output: HashMap<usize, &[u8]> = HashMap::new();
+fn splitup(source: &[u8]) -> anyhow::Result<HashMap<LineRange, &[u8]>> {
+    let mut output: HashMap<LineRange, &[u8]> = HashMap::new();
     if let Ok(s) = std::str::from_utf8(source) {
         let tree = parse(s, "rust");
         if let Ok(query) = language::Language::Rust.parse_query(
@@ -178,11 +185,8 @@ fn splitup(source: &[u8], by_line: bool) -> anyhow::Result<HashMap<usize, &[u8]>
             for m in extracted {
                 if m.name == "fn" {
                     if let Ok(code) = std::str::from_utf8(&source[m.start_byte..m.end_byte]) {
-                        if by_line {
-                            output.insert(m.start_line, code.as_bytes());
-                        } else {
-                            output.insert(m.start_byte, code.as_bytes());
-                        }
+                        let lr = LineRange {start_byte: m.start_byte, start_line: m.start_line, end_line: m.end_line};
+                        output.insert(lr, code.as_bytes());
                     }
                 }
             }
@@ -513,6 +517,7 @@ fn run(args: Args) {
                 let a = Some(c1.tree().unwrap());
                 let b = Some(c2.tree().unwrap());
                 let mut diffopts2 = git2::DiffOptions::new();
+                diffopts2.context_lines(0);
                 let diff = repo
                     .diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2))
                     .unwrap();
@@ -586,13 +591,15 @@ fn run(args: Args) {
                     prev_hunk = 0;
                     related_warnings = std::collections::HashSet::new();
                     let mut pair = vec!["".to_string(), "".to_string()];
-                    let mut function_pair = vec!["".to_string(), "".to_string()];
-                    let mut prev_k: i32 = 0;
+                    let mut prev_l: i32 = 0;
+                    let mut prev_r: i32 = 0;
+                    let mut prefix = "".to_string();
+                    let mut suffix = "".to_string();
                     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
                         let p = delta.old_file().path().unwrap();
                         let mut function_items = HashMap::new();
                         let source = read_to_string(p).unwrap(); 
-                        if let Ok(items) = splitup(source.as_bytes(), true) {
+                        if let Ok(items) = splitup(source.as_bytes()) {
                             function_items = items;
                         }
                         let mut overlap = false;
@@ -612,37 +619,38 @@ fn run(args: Args) {
                             });
                             if overlap {
                                 if prev_hunk == 0 || prev_hunk != h.old_start() {
-                                    if args.function && (! function_pair[0].is_empty() || !function_pair[1].is_empty()) {
-                                        // dbg!(&function_pair[0]);
-                                        // dbg!(&function_pair[1]);
+                                    if args.pair { // && (!pair[0].is_empty() || !pair[1].is_empty() || prev_hunk == 0) { //remainder
                                         let mut prev_f = "".to_string();
                                         for k in function_items.keys() {
                                             let v = function_items.get(k).unwrap();
                                             prev_f = format!("{}", std::str::from_utf8(v).unwrap());
-                                            if k >= &usize::try_from(h.old_start()).unwrap() {
+                                            prev_l = i32::try_from(h.old_start() - 1).unwrap(); 
+                                            // dbg!(&h);
+                                            prev_r = i32::try_from(h.old_start() + h.old_lines() - 1).unwrap(); 
+                                            if k.start_line <= usize::try_from(prev_l).unwrap() && usize::try_from(prev_r).unwrap() <= k.end_line {
                                                 break;
                                             }
-                                            prev_k = i32::try_from(*k).unwrap();
                                         }
                                         let lines: Vec<&str> = prev_f.split('\n').collect();
-                                        // dbg!(&lines);
-                                        let mut prefix = "".to_string();
-                                        let mut suffix = "".to_string();
-                                        for i in 0..usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_k - 1).unwrap() {
-                                            prefix = format!("{}{}", prefix, lines[i]);
+                                        let lines_deleted: Vec<&str> = pair[0].split('\n').collect();
+                                        // let lines_added: Vec<&str> = pair[1].split('\n').collect();
+                                        // dbg!(&prev_f); dbg!(&prev_l); dbg!(&prev_r); dbg!(&lines); dbg!(&lines_deleted); dbg!(&lines_added);
+                                        prefix = "".to_string();
+                                        suffix = "".to_string();
+                                        let ll = i32::try_from(lines_deleted.len()).unwrap();
+                                        let n = usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_l).unwrap();
+                                        let m = usize::try_from(i32::try_from(h.old_start()+ h.old_lines()).unwrap() - prev_l + ll).unwrap();
+                                        // dbg!(&prev_l); dbg!(&prev_r); dbg!(&ll); dbg!(&n); dbg!(&m);
+                                        for i in 0..n {
+                                            prefix = format!("{}{}\n", prefix, lines[i]);
                                         }
-                                        for i in usize::try_from(i32::try_from(h.old_start()+ h.old_lines()).unwrap() - prev_k).unwrap()..lines.len() {
-                                            suffix = format!("{}{}", suffix, lines[i]);
+                                        for i in (m-1)..lines.len() {
+                                            suffix = format!("{}{}\n", suffix, lines[i]);
                                         }
-                                        // dbg!(&prefix);
-                                        // dbg!(&suffix);
-                                        function_pair[0] = format!("{}{}{}", prefix, function_pair[0], suffix);
-                                        function_pair[1] = format!("{}{}{}", prefix, function_pair[1], suffix);
-                                        print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", function_pair[0], function_pair[1]);
-                                        function_pair = vec!["".to_string(), "".to_string()];
-                                    }
-                                    if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) {
-                                        print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", pair[0], pair[1]);
+                                        // dbg!(&prefix); dbg!(&suffix);
+                                        if !pair[0].is_empty() || !pair[1].is_empty() {
+                                            print_pair(args.function, pair.clone(), prefix.clone(), suffix.clone());
+                                        }
                                         pair = vec!["".to_string(), "".to_string()];
                                     }
                                     related_warnings.iter().for_each(|m| {
@@ -653,22 +661,17 @@ fn run(args: Args) {
                                 let content = std::str::from_utf8(line.content()).unwrap();
                                 match line.origin() {
                                     ' ' => {
-                                        if args.function {
-                                            function_pair[0] = format!("{}{}", function_pair[0], content);
-                                            function_pair[1] = format!("{}{}", function_pair[1], content);
-                                        }
                                         if args.pair {
-                                            pair[0] = format!("{}{}", pair[0], content);
-                                            pair[1] = format!("{}{}", pair[1], content);
+                                            if ! args.function {
+                                                pair[0] = format!("{}{}", pair[0], content);
+                                                pair[1] = format!("{}{}", pair[1], content);
+                                            }
                                         } else {
                                             print!("{}", line.origin());
                                             print!("{}", content);
                                         }
                                     }, 
                                     '+' => {
-                                        if args.function {
-                                            function_pair[1] = format!("{}{}", function_pair[1], content);
-                                        }
                                         if args.pair {
                                             pair[1] = format!("{}{}", pair[1], content);
                                         } else {
@@ -677,9 +680,6 @@ fn run(args: Args) {
                                         }
                                     },
                                     '-' => { 
-                                        if args.function {
-                                            function_pair[0] =  format!("{}{}", function_pair[0], content);
-                                        }
                                         if args.pair {
                                             pair[0] = format!("{}{}", pair[0], content);
                                         } else {
@@ -689,7 +689,9 @@ fn run(args: Args) {
                                     },
                                     _ => { // @@
                                         if args.pair {
-                                            pair[0] = format!("{}{}", pair[0], content);
+                                            if !args.function {
+                                                pair[0] = format!("{}{}", pair[0], content);
+                                            }
                                         } else {
                                             print!("{}", content);
                                         }
@@ -706,12 +708,8 @@ fn run(args: Args) {
                         }
                     })
                     .ok();
-                    if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) {
-                        if args.function {
-                            print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", function_pair[0], function_pair[1]);
-                        } else {
-                            print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", pair[0], pair[1]);
-                        }
+                    if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) { //remainder
+                        print_pair(args.function, pair.clone(), prefix.clone(), suffix.clone());
                     }
                 }
             }
@@ -724,6 +722,16 @@ fn run(args: Args) {
 
     #[cfg(fix)]
     fix_warnings(flags, &all_warnings);
+}
+
+fn print_pair(function: bool, pair: Vec<String>, prefix: String, suffix: String) {
+    // dbg!(&prefix); dbg!(&suffix);
+    if function {
+        print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", 
+           format!("{}{}{}", prefix, pair[0], suffix),format!("{}{}{}", prefix, pair[1], suffix));
+    } else {
+        print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", pair[0], pair[1]);
+    }
 }
 
 // Run cargo clippy to generate warnings from "foo.rs" into temporary "foo.rs.1" files
@@ -781,8 +789,8 @@ mod fix {
             .join(file);
         let input_markedup = &markup(input.as_bytes(), warnings);
         let output_markedup = &markup(output, remaining_warnings);
-        if let Ok(orig_items) = splitup(input_markedup, false) {
-            if let Ok(output_items) = splitup(output_markedup, false) {
+        if let Ok(orig_items) = splitup(input_markedup) {
+            if let Ok(output_items) = splitup(output_markedup) {
                 if let Some(t) = trans_name.parent() {
                     let path = PathBuf::from(&file);
                     if let Some(p) = path.file_stem() {
@@ -1044,15 +1052,12 @@ fn main() {
             let captured = String::from_utf8(captured).unwrap();
             assert_eq!(captured, r###"There are 1 warnings in 1 files.
 #[Warning(clippy::unwrap_used)
-@@ -1,5 +1,6 @@
- 
- fn main() {
+@@ -3,2 +3,3 @@ fn main() {
 -    let s = std::fs::read_to_string("Cargo.toml").unwrap();
 -    println!("{s}");
 +    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
 +        println!("{s}");
 +    }
- }
 "###);
             teardown(cd, update_commit);
         }
@@ -1090,45 +1095,22 @@ fn main() {
             let captured = String::from_utf8(captured).unwrap();
             assert_eq!(captured, r###"There are 1 warnings in 1 files.
 #[Warning(clippy::unwrap_used)
-@@ -1,5 +1,6 @@
-
-fn main() {
+@@ -3,2 +3,3 @@ fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
     println!("{s}");
-}
 === 19a3477889393ea2cdd0edcb5e6ab30c ===
-
-fn main() {
     if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
         println!("{s}");
     }
-}
 "###);
             teardown(cd, update_commit);
         }
     }
 
-
-
-    #[test]
-    #[serial]
-    fn function() {
-       if let Ok((cd, update_commit)) = setup(r#"
-fn main() {
-
-
-    let s = std::fs::read_to_string("Cargo.toml").unwrap();
-    println!("{s}");
-}
-"#,r#"
-fn main() {
-    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
-        println!("{s}");
-    }
-}
-"#) 
-        {
+    fn function_setup(code1: &str, code2: &str, code3: &str) {
+       if let Ok((cd, update_commit)) = setup(code1, code2) {
             let debug_confirm = true;
+            dbg!(&update_commit);
             let args = Args {
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
@@ -1142,9 +1124,28 @@ fn main() {
             let captured = Arc::try_unwrap(captured).unwrap();
             let captured = captured.into_inner().unwrap();
             let captured = String::from_utf8(captured).unwrap();
-            assert_eq!(captured, r###"There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+            assert_eq!(captured, code3);
+            teardown(cd, update_commit);
+        }
+    }
+    #[test]
+    #[serial]
+    fn function1() {
+         function_setup(r#"
+fn main() {
 
+
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+"#,r#"
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"#, r###"There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
 fn main() {
 
 
@@ -1152,17 +1153,52 @@ fn main() {
     println!("{s}");
 }
 === 19a3477889393ea2cdd0edcb5e6ab30c ===
-
 fn main() {
     if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
         println!("{s}");
     }
 }
-"###);
-            teardown(cd, update_commit);
-        }
+"###
+        );
     }
 
+    #[test]
+    #[serial]
+    fn function2() {
+         function_setup(r#"
+fn _test() {
+}
+fn main() {
+
+
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+"#,r#"
+fn _test() {
+}
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"#, r###"There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+fn main() {
+
+
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"###
+        );
+    }
 
     #[test]
     #[serial]
