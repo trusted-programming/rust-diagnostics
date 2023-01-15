@@ -66,9 +66,22 @@ rust-diagnostics --patch $r2 --confirm
 The output includes the count of warnings of $r1 and the hunks between $r1..$r2
 that matters to fix the warnings listed in front of the hunks.
 
+For example, the output will be in the `git diff` format:
+
+```
+There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+@@ -3,2 +3,3 @@ fn main() {
+-    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+-    println!("{s}");
++    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
++        println!("{s}");
++    }
+```
+
 #### Generate pair format using the `--pair` option
-Furthermore, use the following options changes the patch into a pair of 
-before and after of the patch:
+Furthermore, using the `--pair` option changes the patch into a pair of 
+code before and after the change:
 ```bash
 git checkout $r1
 rust-diagnostics --patch $r2 --confirm --pair
