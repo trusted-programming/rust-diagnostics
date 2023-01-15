@@ -228,7 +228,7 @@ fn main() {
 }
 ```
 
-## optional feature: `fix`
+### (optional) feature: `fix`
 Automated fix of warnings by `clippy` could be recorded as transformations,
 including the programs before and after of fixes. Furthermore, scope of such
 transformations are narrowed down to the individual items, making it easier to
