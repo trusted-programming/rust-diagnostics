@@ -1,8 +1,8 @@
 # rust-diagnostics
 
 This is a utility to insert diagnostics of code fragments as comments in Rust
-code and checks whether a warning/error in the diagnostics has been fixed in
-git commit history.
+code and checks how a warning/error in the diagnostics has been fixed in git
+commit history.
 
 Rust compiler displays many diagnostics to the console, using file name and
 line numbers to indicate their exact locations. Without an IDE, it requires a
@@ -12,11 +12,10 @@ This utility inserts the diagnostic messages in-place, which could enable
 transformer-based machine learning approaches to analyse Rust diagnostic
 semantics.
 
-Through additional arguments, this utility also checks whether a warning found
+Through additional arguments, this utility also checks how a warning found
 in revision r1 has been manually fixed by a revision r2. 
 
 Currently we integrate the utility with `clippy` and `git-rs`.
-
 
 ## Installation
 ```bash
@@ -176,11 +175,11 @@ There are 1 warnings in 1 files.
 +        println!("{s}");
 +    }
 ```
-Note that here we have remove all the context lines, just like the `-U0` option of
+Note that here we have removed all the context lines, just like the `-U0` option of
 `git-diff` command, so that it is possible to get a more precise function context 
 of the patch.
 
-#### Generate pair format using the `--pair` option
+#### Generate into a pair using the `--pair` option
 Using the `--pair` option changes the patch into a pair of code before and after the change:
 ```bash
 git checkout $r1
@@ -199,7 +198,7 @@ There are 1 warnings in 1 files.
         println!("{s}");
     }
 ```
-Note. To avoid possible clash with existing code, in the separator we use the hash key `19a3477889393ea2cdd0edcb5e6ab30c`, which is created from the command
+Note. To avoid possible clash with existing code, in the separator of the pair we use the hash key `19a3477889393ea2cdd0edcb5e6ab30c`, which has been created from the command
 ```bash
 echo rust-diagnostics | md5sum 
 ```
