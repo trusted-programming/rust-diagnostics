@@ -955,7 +955,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
     // git add $filename
     // git commit -am $message
     // ```
-    fn commit_file(message: &str, filename: &str, code: &str) -> Result<git2::Oid, git2::Error> {
+    fn commit_file(message: &str, filename: &str, code: &str) -> core::result::Result<git2::Oid, git2::Error> {
         std::fs::write(filename, code).ok();
         let repo = git2::Repository::open(std::path::Path::new(".")).unwrap();
         let author = git2::Signature::now("Yijun Yu", "y.yu@open.ac.uk").unwrap();
@@ -983,7 +983,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
         }
     }
 
-    fn setup(code: &str, fix: &str) -> Result<(std::path::PathBuf, git2::Oid), std::io::Error> {
+    fn setup(code: &str, fix: &str) -> anyhow::Result<(std::path::PathBuf, git2::Oid), std::io::Error> {
         let dir = std::path::Path::new("abc");
         if dir.exists() {
             let _ = std::fs::remove_dir_all(dir);
@@ -1114,6 +1114,40 @@ fn main() {
         }
     }
 
+    use std::io::*;
+    // ```bash
+    // git clone .git rd
+    // cd cd
+    // git checkout $rev1
+    // rust-diagnostics --patch $rev2
+    // ```
+    fn rd_setup(rev1: &str, rev2: &str) {
+        let dir = std::path::Path::new("rd/.git");
+        if ! dir.exists() {
+            let fo = git2::FetchOptions::new();
+            let co = git2::build::CheckoutBuilder::new();
+            git2::build::RepoBuilder::new()
+                .fetch_options(fo)
+                .with_checkout(co)
+                .clone(".git", std::path::Path::new("rd")).ok();
+            println!();
+        } 
+        let cd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir).ok();
+        let oid = git2::Oid::from_str(rev1).unwrap();
+        checkout(oid);
+        let args = Args {
+            flags: vec![],
+            patch: Some(rev2.to_string()),
+            confirm: true,
+            pair: true,
+            function: true,
+            single: false,
+        };
+        run(args);
+        std::env::set_current_dir(cd).ok();
+    }
+
     fn function_setup(code1: &str, code2: &str, code3: &str) {
        if let Ok((cd, update_commit)) = setup(code1, code2) {
             let debug_confirm = true;
@@ -1136,6 +1170,14 @@ fn main() {
             teardown(cd, update_commit);
         }
     }
+
+    #[test]
+    #[serial]
+    fn rd1() {
+        rd_setup("2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
+                 "512236bac29f09ca798c93020ce377c30a4ed2a5");
+    }
+
     #[test]
     #[serial]
     fn function1() {

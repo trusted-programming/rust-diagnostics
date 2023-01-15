@@ -1,5 +1,6 @@
 ## Change Log
 - [ ] Add an option `--single` to select only those diff records that patch exactly one warning
+- [ ] Test rust-diagnostics on its own history
 - [x] Add an option `-W` to generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by `libgit2`
 - [x] Add an option `--pair` to generate diff records into code pairs
 - [x] Add a `--patch <id> --commit` option to print out the hunks only when they have been fixed by the revision <id>
