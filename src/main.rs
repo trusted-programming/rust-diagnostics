@@ -30,7 +30,7 @@ mod rustc_flags {
 
 use structopt::StructOpt;
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug)]
 struct Args {
     #[structopt(name = "flags", long)]
     /// warnings concerning the warning flags
@@ -305,15 +305,17 @@ fn diagnose_all_warnings(flags: Vec<String>) -> HashMap<String, Vec<Ran>> {
             }
         }
         for file in map.keys() {
-            let markedup = &markup_map[file];
-            let file_name = PathBuf::from("diagnostics").join(file);
-            // println!("Marked warning(s) into {:?}", &file_name);
-            if let Some(p) = file_name.parent() {
-                if !p.exists() {
-                    std::fs::create_dir_all(p).ok();
+            if markup_map.contains_key(file) {
+                let markedup = &markup_map[file];
+                let file_name = PathBuf::from("diagnostics").join(file);
+                // println!("Marked warning(s) into {:?}", &file_name);
+                if let Some(p) = file_name.parent() {
+                    if !p.exists() {
+                        std::fs::create_dir_all(p).ok();
+                    }
                 }
+                std::fs::write(&file_name, markedup).ok();
             }
-            std::fs::write(&file_name, markedup).ok();
         }
     }
     map
@@ -602,6 +604,8 @@ fn run(args: Args) {
                     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
                         let p = delta.old_file().path().unwrap();
                         let mut function_items = HashMap::new();
+                        let cd = std::env::current_dir().unwrap();
+                        // dbg!(&p); dbg!(&cd);
                         let source = read_to_string(p).unwrap(); 
                         if let Ok(items) = splitup(source.as_bytes()) {
                             function_items = items;
@@ -878,6 +882,7 @@ fn remove_previously_generated_files(folder: &str, pattern: &str) {
         .spawn()
     {
         if let Ok(output) = command.wait_with_output() {
+#[cfg(verbose)]
             if !output.stdout.is_empty() {
                 println!("Removed previously generated warning files in {folder} matching with {pattern}")
             }
@@ -1121,9 +1126,10 @@ fn main() {
     // git checkout $rev1
     // rust-diagnostics --patch $rev2
     // ```
-    fn rd_setup(rev1: &str, rev2: &str) {
-        let dir = std::path::Path::new("rd/.git");
-        if ! dir.exists() {
+    fn rd_setup(rev1: &str, rev2: &str) -> String {
+        let dir = std::path::Path::new("rd");
+        let git_dir = std::path::Path::new("rd/.git");
+        if ! git_dir.exists() {
             let fo = git2::FetchOptions::new();
             let co = git2::build::CheckoutBuilder::new();
             git2::build::RepoBuilder::new()
@@ -1144,8 +1150,14 @@ fn main() {
             function: true,
             single: false,
         };
+        std::io::set_output_capture(Some(Default::default()));
         run(args);
+        let captured = std::io::set_output_capture(None).unwrap();
+        let captured = Arc::try_unwrap(captured).unwrap();
+        let captured = captured.into_inner().unwrap();
+        let captured = String::from_utf8(captured).unwrap();
         std::env::set_current_dir(cd).ok();
+        captured
     }
 
     fn function_setup(code1: &str, code2: &str, code3: &str) {
@@ -1174,8 +1186,60 @@ fn main() {
     #[test]
     #[serial]
     fn rd1() {
-        rd_setup("2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
-                 "512236bac29f09ca798c93020ce377c30a4ed2a5");
+        assert_eq!(rd_setup(
+                "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
+                "512236bac29f09ca798c93020ce377c30a4ed2a5",
+                ), "There are 30 warnings in 1 files.\n");
+        insta::assert_snapshot!(rd_setup(
+                "512236bac29f09ca798c93020ce377c30a4ed2a5",
+                "375981bb06cf819332c202cdd09d5a8c48e296db",
+                ), @r###"
+        There are 30 warnings in 1 files.
+        #[Warning(clippy::len_zero)
+        fn remove_previously_generated_files() {
+            if output.len() != 0 {
+                .args(&[".", "-name", "*.rs.1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if output.len() != 0 {
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(&["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        === 19a3477889393ea2cdd0edcb5e6ab30c ===
+        fn remove_previously_generated_files() {
+            if !output.is_empty() {
+                .args(&[".", "-name", "*.rs.1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if output.len() != 0 {
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(&["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        "###);
     }
 
     #[test]

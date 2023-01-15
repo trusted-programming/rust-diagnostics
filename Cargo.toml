@@ -35,3 +35,4 @@ cc = { version = "1.0.72", features = [ "parallel" ] }
 
 [dev-dependencies]
 serial_test = "0.10.0"
+insta = "*"
