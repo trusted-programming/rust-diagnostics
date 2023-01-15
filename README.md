@@ -31,7 +31,7 @@ cargo install rust-diagnostics
 
 ## Usage:
 ```bash
-rust-diagnostics [--patch <commit_id> [--confirm]]
+rust-diagnostics [--patch <commit_id> [--confirm] [--pair] [--function] [--single] ]
 ```
 
 ### Inserting warnings info into Rust code
@@ -63,8 +63,59 @@ you can use `git log -p` to identify the revisions' commit id first. Then run
 git checkout $r1
 rust-diagnostics --patch $r2 --confirm
 ```
-The output includes the count of warnings of $r1 and the hunks between $r1..$r2 that matters to fix the warnings listed
-in front of the hunks.
+The output includes the count of warnings of $r1 and the hunks between $r1..$r2
+that matters to fix the warnings listed in front of the hunks.
+
+#### Generate pair format using the `--pair` option
+Furthermore, use the following options changes the patch into a pair of 
+before and after of the patch:
+```bash
+git checkout $r1
+rust-diagnostics --patch $r2 --confirm --pair
+```
+
+For example, it will print
+```
+There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+@@ -3,2 +3,3 @@ fn main() {
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+```
+Note. To avoid possible clash with existing code, in the separator we use the hash key `19a3477889393ea2cdd0edcb5e6ab30c`, which is created from the command
+```bash
+echo rust-diagnostics | md5sum 
+```
+
+#### Generate function context using the `--function` option
+The pair may be too terse to learn, we use the `--function` option to
+print the function surrounding the patch as its context:
+```bash
+git checkout $r1
+rust-diagnostics --patch $r2 --confirm --pair [--function | -W]
+```
+
+For example, it will print the following instead:
+```
+There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+fn main() {
+
+
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+```
 
 ### (optional) Generating inputs and outputs of warning fixes by `cargo clippy --fix`
 This requires that the 'fix’ feature being enabled when building the tool.
