@@ -1,5 +1,4 @@
 #![feature(internal_output_capture)]
-use std::{sync::Arc};
 use cargo_metadata::{diagnostic::Diagnostic, Message};
 use serde::Serialize;
 use std::{
@@ -604,7 +603,7 @@ fn run(args: Args) {
                     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
                         let p = delta.old_file().path().unwrap();
                         let mut function_items = HashMap::new();
-                        let cd = std::env::current_dir().unwrap();
+                        // let cd = std::env::current_dir().unwrap();
                         // dbg!(&p); dbg!(&cd);
                         let source = read_to_string(p).unwrap(); 
                         if let Ok(items) = splitup(source.as_bytes()) {
@@ -627,7 +626,7 @@ fn run(args: Args) {
                             });
                             if overlap {
                                 if prev_hunk == 0 || prev_hunk != h.old_start() {
-                                    if args.pair { // && (!pair[0].is_empty() || !pair[1].is_empty() || prev_hunk == 0) { //remainder
+                                    if args.pair { 
                                         let mut prev_f = "".to_string();
                                         for k in function_items.keys() {
                                             let v = function_items.get(k).unwrap();
@@ -656,14 +655,18 @@ fn run(args: Args) {
                                             suffix = format!("{}{}\n", suffix, lines[i]);
                                         }
                                         // dbg!(&prefix); dbg!(&suffix);
-                                        if !pair[0].is_empty() || !pair[1].is_empty() {
+                                        if (!pair[0].is_empty() || !pair[1].is_empty())
+                                            && (! args.single || related_warnings.len() == 1)
+                                        {
                                             print_pair(args.function, pair.clone(), prefix.clone(), suffix.clone());
                                         }
-                                        pair = vec!["".to_string(), "".to_string()];
                                     }
-                                    related_warnings.iter().for_each(|m| {
-                                        println!("{}", m.name);
-                                    });
+                                    pair = vec!["".to_string(), "".to_string()];
+                                    if ! args.single || related_warnings.len() == 1 {
+                                        related_warnings.iter().for_each(|m| {
+                                            println!("{}", m.name);
+                                        });
+                                    }
                                     related_warnings = std::collections::HashSet::new();
                                 }
                                 let content = std::str::from_utf8(line.content()).unwrap();
@@ -675,24 +678,30 @@ fn run(args: Args) {
                                                 pair[1] = format!("{}{}", pair[1], content);
                                             }
                                         } else {
-                                            print!("{}", line.origin());
-                                            print!("{}", content);
+                                            if ! args.single || related_warnings.len() == 1 { //remainder
+                                                print!("{}", line.origin());
+                                                print!("{}", content);
+                                            }
                                         }
                                     }, 
                                     '+' => {
                                         if args.pair {
                                             pair[1] = format!("{}{}", pair[1], content);
                                         } else {
-                                            print!("{}", line.origin());
-                                            print!("{}", content);
+                                            if ! args.single || related_warnings.len() == 1 { //remainder
+                                                print!("{}", line.origin());
+                                                print!("{}", content);
+                                            }
                                         }
                                     },
                                     '-' => { 
                                         if args.pair {
                                             pair[0] = format!("{}{}", pair[0], content);
                                         } else {
-                                            print!("{}", line.origin());
-                                            print!("{}", content);
+                                            if ! args.single || related_warnings.len() == 1 { //remainder
+                                                print!("{}", line.origin());
+                                                print!("{}", content);
+                                            }
                                         }
                                     },
                                     _ => { // @@
@@ -701,7 +710,9 @@ fn run(args: Args) {
                                                 pair[0] = format!("{}{}", pair[0], content);
                                             }
                                         } else {
-                                            print!("{}", content);
+                                            if ! args.single || related_warnings.len() == 1 { //remainder
+                                                print!("{}", content);
+                                            }
                                         }
                                     }
                                 }
@@ -716,7 +727,9 @@ fn run(args: Args) {
                         }
                     })
                     .ok();
-                    if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) { //remainder
+                    if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) 
+                       && (! args.single || related_warnings.len() == 1) { //remainder
+                                                                                   //
                         print_pair(args.function, pair.clone(), prefix.clone(), suffix.clone());
                     }
                 }
@@ -1014,6 +1027,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
         std::env::set_current_dir(cd).ok();
     }
 
+    use std::{sync::Arc};
     #[test]
     #[serial]
     // run the following bash commands
@@ -1119,47 +1133,6 @@ fn main() {
         }
     }
 
-    use std::io::*;
-    // ```bash
-    // git clone .git rd
-    // cd cd
-    // git checkout $rev1
-    // rust-diagnostics --patch $rev2
-    // ```
-    fn rd_setup(rev1: &str, rev2: &str) -> String {
-        let dir = std::path::Path::new("rd");
-        let git_dir = std::path::Path::new("rd/.git");
-        if ! git_dir.exists() {
-            let fo = git2::FetchOptions::new();
-            let co = git2::build::CheckoutBuilder::new();
-            git2::build::RepoBuilder::new()
-                .fetch_options(fo)
-                .with_checkout(co)
-                .clone(".git", std::path::Path::new("rd")).ok();
-            println!();
-        } 
-        let cd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir).ok();
-        let oid = git2::Oid::from_str(rev1).unwrap();
-        checkout(oid);
-        let args = Args {
-            flags: vec![],
-            patch: Some(rev2.to_string()),
-            confirm: true,
-            pair: true,
-            function: true,
-            single: false,
-        };
-        std::io::set_output_capture(Some(Default::default()));
-        run(args);
-        let captured = std::io::set_output_capture(None).unwrap();
-        let captured = Arc::try_unwrap(captured).unwrap();
-        let captured = captured.into_inner().unwrap();
-        let captured = String::from_utf8(captured).unwrap();
-        std::env::set_current_dir(cd).ok();
-        captured
-    }
-
     fn function_setup(code1: &str, code2: &str, code3: &str) {
        if let Ok((cd, update_commit)) = setup(code1, code2) {
             let debug_confirm = true;
@@ -1181,65 +1154,6 @@ fn main() {
             assert_eq!(captured, code3);
             teardown(cd, update_commit);
         }
-    }
-
-    #[test]
-    #[serial]
-    fn rd1() {
-        assert_eq!(rd_setup(
-                "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
-                "512236bac29f09ca798c93020ce377c30a4ed2a5",
-                ), "There are 30 warnings in 1 files.\n");
-        insta::assert_snapshot!(rd_setup(
-                "512236bac29f09ca798c93020ce377c30a4ed2a5",
-                "375981bb06cf819332c202cdd09d5a8c48e296db",
-                ), @r###"
-        There are 30 warnings in 1 files.
-        #[Warning(clippy::len_zero)
-        fn remove_previously_generated_files() {
-            if output.len() != 0 {
-                .args(&[".", "-name", "*.rs.1"])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let output = command
-                .wait_with_output()
-                .expect("failed to aquire programm output").stdout;
-            if output.len() != 0 {
-                println!("Removed previously generated warning files")
-            }
-            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
-                let mut command = Command::new("rm")
-                .args(&["-f", tmp])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-                command.wait().expect("problem with file deletion");
-            });
-        }
-        === 19a3477889393ea2cdd0edcb5e6ab30c ===
-        fn remove_previously_generated_files() {
-            if !output.is_empty() {
-                .args(&[".", "-name", "*.rs.1"])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let output = command
-                .wait_with_output()
-                .expect("failed to aquire programm output").stdout;
-            if output.len() != 0 {
-                println!("Removed previously generated warning files")
-            }
-            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
-                let mut command = Command::new("rm")
-                .args(&["-f", tmp])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-                command.wait().expect("problem with file deletion");
-            });
-        }
-        "###);
     }
 
     #[test]
@@ -1316,6 +1230,39 @@ fn main() {
 
     #[test]
     #[serial]
+    fn main() {
+        let dir = std::path::Path::new("abc");
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        if let Ok(command) = Command::new("cargo").args(["init", "--bin", "abc"]).spawn() {
+            if let Ok(_output) = command.wait_with_output() {
+                let code = r#"
+fn main() {
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+"#;
+                let cd = std::env::current_dir().unwrap();
+                std::env::set_current_dir(dir).ok();
+                std::fs::write("src/main.rs", code).ok();
+                let args = Args {
+                    flags: vec![],
+                    patch: None,
+                    confirm: false,
+                    pair: false,
+                    function: false,
+                    single: false,
+                };
+                run(args);
+                assert!(!std::path::Path::new("test/transform/Wclippy::unwrap_used/0.2.rs").exists());
+                std::env::set_current_dir(cd).ok();
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
     fn unfixed() {
        if let Ok((cd, update_commit)) = setup(r#"
 fn main() {
@@ -1349,36 +1296,217 @@ fn main() {
         }
     }
 
+    // ```bash
+    // git clone .git rd
+    // cd cd
+    // git checkout $rev1
+    // rust-diagnostics --patch $rev2
+    // ```
+    fn rd_setup(args: Args, rev1: &str) -> String {
+        let dir = std::path::Path::new("rd");
+        let git_dir = std::path::Path::new("rd/.git");
+        if ! git_dir.exists() {
+            let fo = git2::FetchOptions::new();
+            let co = git2::build::CheckoutBuilder::new();
+            git2::build::RepoBuilder::new()
+                .fetch_options(fo)
+                .with_checkout(co)
+                .clone(".git", std::path::Path::new("rd")).ok();
+            println!();
+        } 
+        let cd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir).ok();
+        let oid = git2::Oid::from_str(rev1).unwrap();
+        checkout(oid);
+        std::io::set_output_capture(Some(Default::default()));
+        run(args);
+        let captured = std::io::set_output_capture(None).unwrap();
+        let captured = Arc::try_unwrap(captured).unwrap();
+        let captured = captured.into_inner().unwrap();
+        let captured = String::from_utf8(captured).unwrap();
+        std::env::set_current_dir(cd).ok();
+        captured
+    }
+
     #[test]
     #[serial]
-    fn main() {
-        let dir = std::path::Path::new("abc");
-        if dir.exists() {
-            let _ = std::fs::remove_dir_all(dir);
-        }
-        if let Ok(command) = Command::new("cargo").args(["init", "--bin", "abc"]).spawn() {
-            if let Ok(_output) = command.wait_with_output() {
-                let code = r#"
-fn main() {
-    let s = std::fs::read_to_string("Cargo.toml").unwrap();
-    println!("{s}");
-}
-"#;
-                let cd = std::env::current_dir().unwrap();
-                std::env::set_current_dir(dir).ok();
-                std::fs::write("src/main.rs", code).ok();
-                let args = Args {
-                    flags: vec![],
-                    patch: None,
-                    confirm: false,
-                    pair: false,
-                    function: false,
-                    single: false,
-                };
-                run(args);
-                assert!(!std::path::Path::new("test/transform/Wclippy::unwrap_used/0.2.rs").exists());
-                std::env::set_current_dir(cd).ok();
-            }
-        }
+    fn rd1() {
+        assert_eq!(rd_setup(Args { patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
+                flags: vec![],confirm: true, pair: true, function: true, single: true, },
+                "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1"), "There are 30 warnings in 1 files.\n");
     }
+
+    #[test]
+    #[serial]
+    fn rd2() {
+        insta::assert_snapshot!(rd_setup(Args { patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+                flags: vec![], confirm: true, pair: false, function: false, single: true, },
+                "512236bac29f09ca798c93020ce377c30a4ed2a5"), @r###"
+        There are 30 warnings in 1 files.
+        #[Warning(clippy::len_zero)
+        -    if output.len() != 0 {
+        +    if !output.is_empty() {
+        "###);
+        insta::assert_snapshot!(rd_setup(Args { patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+                flags: vec![], confirm: true, pair: true, function: false, single: true, },
+                "512236bac29f09ca798c93020ce377c30a4ed2a5"), @r###"
+        There are 30 warnings in 1 files.
+        #[Warning(clippy::len_zero)
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
+            if output.len() != 0 {
+        === 19a3477889393ea2cdd0edcb5e6ab30c ===
+            if !output.is_empty() {
+        "###);
+        insta::assert_snapshot!(rd_setup(Args { patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+                flags: vec![], confirm: true, pair: true, function: true, single: true, },
+                "512236bac29f09ca798c93020ce377c30a4ed2a5"), @r###"
+        There are 30 warnings in 1 files.
+        #[Warning(clippy::len_zero)
+        fn remove_previously_generated_files() {
+            if output.len() != 0 {
+                .args(&[".", "-name", "*.rs.1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if output.len() != 0 {
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(&["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        === 19a3477889393ea2cdd0edcb5e6ab30c ===
+        fn remove_previously_generated_files() {
+            if !output.is_empty() {
+                .args(&[".", "-name", "*.rs.1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if output.len() != 0 {
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(&["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        "###);
+    }
+
+    #[test]
+    #[serial]
+    fn rd3() {
+        insta::assert_snapshot!(rd_setup(Args { patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
+                flags: vec![], confirm: true, pair: false, function: false, single: true, },
+                "375981bb06cf819332c202cdd09d5a8c48e296db"), @r###"
+        There are 27 warnings in 1 files.
+        #[Warning(clippy::collapsible_if)
+        -            if m.start <= i && i < m.end {
+        -                if i == m.start {
+        -                    output.extend(format!("<{}>", m.name).as_bytes());
+        -                }
+        +            if m.start <= i && i < m.end && i == m.start {
+        +                output.extend(format!("<{}>", m.name).as_bytes());
+        -        let file_name = path
+        -            .parent()
+        -            .unwrap()
+        -            .join(format!("{}.rs.1",path.file_stem().unwrap().to_string_lossy()));
+        +        let file_name = path.parent().unwrap().join(format!(
+        +            "{}.rs.1",
+        +            path.file_stem().unwrap().to_string_lossy()
+        +        ));
+        -            std::fs::create_dir(&file_name.parent().unwrap()).ok();
+        -        }            
+        +            std::fs::create_dir(file_name.parent().unwrap()).ok();
+        +        }
+        -        .expect("failed to aquire programm output").stdout;
+        +        .expect("failed to aquire programm output")
+        +        .stdout;
+        -    String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
+        -        let mut command = Command::new("rm")
+        -        .args(["-f", tmp])
+        -        .stdout(Stdio::piped())
+        -        .spawn()
+        -        .unwrap();
+        -        command.wait().expect("problem with file deletion");
+        -    });
+        +    String::from_utf8(output)
+        +        .expect("programm output was not valid utf-8")
+        +        .split('\n')
+        +        .for_each(|tmp| {
+        +            let mut command = Command::new("rm")
+        +                .args(["-f", tmp])
+        +                .stdout(Stdio::piped())
+        +                .spawn()
+        +                .unwrap();
+        +            command.wait().expect("problem with file deletion");
+        +        });
+        "###);
+        insta::assert_snapshot!(rd_setup(Args { patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
+                flags: vec![], confirm: true, pair: true, function: true, single: true, },
+                "375981bb06cf819332c202cdd09d5a8c48e296db"), @r###"
+        There are 27 warnings in 1 files.
+        #[Warning(clippy::collapsible_if)
+        fn remove_previously_generated_files() {
+            String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        === 19a3477889393ea2cdd0edcb5e6ab30c ===
+        fn remove_previously_generated_files() {
+            String::from_utf8(output)
+                .expect("programm output was not valid utf-8")
+                .split('\n')
+                .for_each(|tmp| {
+                    let mut command = Command::new("rm")
+                        .args(["-f", tmp])
+                        .stdout(Stdio::piped())
+                        .spawn()
+                        .unwrap();
+                    command.wait().expect("problem with file deletion");
+                });
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        "###);
+    }
+
 }
