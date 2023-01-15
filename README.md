@@ -81,31 +81,6 @@ clippy. In this way one can avoid typing multiple `-Wclippy::...` options from
 the command line. Using `rustc_flags` feature it is possible to inherit them
 from the compiler options.
 
-## Updates (including bugfixes)
-
-- [x] Insert two comments around the diagnositic spans;
-- [x] Name the comments by the lint rules, and insert the rendered diagnostics into the second comment
-- [x] Insert rendered diagnostic messages into the second comment.
-- [x] Separate the output files into a different folder, so as to keep using the same ".rs" file extension
-- [x] Measure the number of warnings per KLOC through `count_diagnostics.sh`
-- [x] Store the transformation results before and after `clippy --fix` into the `transform` folder 
-- [x] list the marked rules applied to the transformations
-- [x] Select only the relevant marked rules
-- [x] List the fixed warnings and keep the remaining warnings in the output 
-- [x] Integrate with `txl` through `txl-rs`
-- [x] Get RustCFlags from `cargo`
-- [x] Call fix only when the number of warnings is larger than 0
-- [x] Integrate with transformation systems to fix some of the warnings not yet fixed by clippy
-- [x] Perform `rustfmt` to output of TXL transformations
-- [x] Move the implementation of optional functionalities into rustc_flags, fix features to reduce the dependencies
-- [x] Add a `--patch <id>` option to print out the patch of HEAD..<id> where <id> is a commit id and HEAD is the current work tree
-- [x] Make the `--patch <id>` feature to print out the patch of HEAD..<id>
-- [x] Print out the hunks only when they are relevant to the spans of warning locations
-- [x] Add a `--patch <id> --commit` option to print out the hunks only when they have been fixed by the revision <id>
-- [x] Add an option `--pair` to generate diff records into code pairs
-- [x] Add an option `-W` to generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by 
-      `libgit2`
-
 ## Acknowledgement
 
 - Thanks for [David Wood](https://davidtw.co), who offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;

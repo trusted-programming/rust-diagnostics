@@ -46,8 +46,12 @@ struct Args {
     /// which is the checksum by `echo rust-diagnostics | md5sum`
     pair: bool,
     #[structopt(name = "function", long)]
+    #[structopt(name = "W", short)]
     /// generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by `libgit2`
     function: bool,
+    #[structopt(name = "single", long)]
+    /// select only those diff records that patch exactly one warning
+    single: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -909,6 +913,7 @@ mod tests {
             confirm: false,
             pair: false,
             function: false,
+            single: false,
         };
         let dir = std::path::Path::new("abc");
         if dir.exists() {
@@ -1043,6 +1048,7 @@ fn main() {
                 confirm: debug_confirm,
                 pair: false,
                 function: false,
+                single: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -1086,6 +1092,7 @@ fn main() {
                 confirm: debug_confirm,
                 pair: true,
                 function: false,
+                single: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -1117,6 +1124,7 @@ fn main() {
                 confirm: debug_confirm,
                 pair: true,
                 function: true,
+                single: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -1221,6 +1229,7 @@ fn main() {
                 confirm: true,
                 pair: false,
                 function: false,
+                single: false,
             };
             std::io::set_output_capture(Some(Default::default()));
             run(args);
@@ -1258,6 +1267,7 @@ fn main() {
                     confirm: false,
                     pair: false,
                     function: false,
+                    single: false,
                 };
                 run(args);
                 assert!(!std::path::Path::new("test/transform/Wclippy::unwrap_used/0.2.rs").exists());
