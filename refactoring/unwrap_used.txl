@@ -10,6 +10,7 @@ function main
     export FuncReturnMap [repeat func_return_entry]  
     % TODO: this can be extended with predefined funcs/user defined funcs
       ".ok" -> 'Ok
+      "std :: fs :: read_to_string" -> 'Ok
       "fs :: read_to_string" -> 'Ok
       "read_to_string" -> 'Ok
       "spawn" -> 'Ok
