@@ -17,12 +17,6 @@ in revision r1 has been manually fixed by a revision r2.
 
 Currently we integrate the utility with `clippy` and `git-rs`.
 
-## optional feature: `fix`
-Automated fix of warnings by `clippy` could be recorded as transformations,
-including the programs before and after of fixes. Furthermore, scope of such
-transformations are narrowed down to the individual items, making it easier to
-spot whether the exact warnings get fixed or not. The remaining unfixed
-warnings are still kept in the transformed results.
 
 ## Installation
 ```bash
@@ -223,8 +217,6 @@ For example, it will print the following instead:
 There are 1 warnings in 1 files.
 #[Warning(clippy::unwrap_used)
 fn main() {
-
-
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
     println!("{s}");
 }
@@ -235,6 +227,13 @@ fn main() {
     }
 }
 ```
+
+## optional feature: `fix`
+Automated fix of warnings by `clippy` could be recorded as transformations,
+including the programs before and after of fixes. Furthermore, scope of such
+transformations are narrowed down to the individual items, making it easier to
+spot whether the exact warnings get fixed or not. The remaining unfixed
+warnings are still kept in the transformed results.
 
 ### (optional) Generating inputs and outputs of warning fixes by `cargo clippy --fix`
 This requires that the 'fix’ feature being enabled when building the tool.
@@ -256,3 +255,4 @@ from the compiler options.
 - Thanks for [David Wood](https://davidtw.co), who offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;
 - Thanks for [Mara Bos](https://github.com/m-ou-se), who provided some hints on how to fix `unwrap()` warnings using `if-let` statements;
 - Thanks for [Amanieu d'Antras](https://github.com/Amanieu), who provided some explanation for the necessity of certain clippy rules in practice.
+- Thanks for [Josh Triplett](https://github.com/joshtriplett), who implemented `git-rs` which wraps the `libgit2` library to use in Rust.
