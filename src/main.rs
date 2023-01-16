@@ -564,6 +564,7 @@ fn run(args: Args) {
                             prev_hunk = h.old_start();
                             true
                         } else {
+                            related_warnings = std::collections::HashSet::new();
                             prev_hunk = h.old_start();
                             true
                         }
@@ -596,8 +597,8 @@ fn run(args: Args) {
                     prev_hunk = 0;
                     related_warnings = std::collections::HashSet::new();
                     let mut pair = vec!["".to_string(), "".to_string()];
-                    let mut prev_l: i32 = 0;
-                    let mut prev_r: i32 = 0;
+                    let prev_l: i32 = 0;
+                    let prev_r: i32 = 0;
                     let mut prefix = "".to_string();
                     let mut suffix = "".to_string();
                     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
@@ -626,99 +627,63 @@ fn run(args: Args) {
                             });
                             if overlap {
                                 if prev_hunk == 0 || prev_hunk != h.old_start() {
-                                    if args.pair { 
-                                        let mut prev_f = "".to_string();
-                                        for k in function_items.keys() {
-                                            let v = function_items.get(k).unwrap();
-                                            prev_f = format!("{}", std::str::from_utf8(v).unwrap());
-                                            prev_l = i32::try_from(h.old_start() - 1).unwrap(); 
-                                            // dbg!(&h);
-                                            prev_r = i32::try_from(h.old_start() + h.old_lines() - 1).unwrap(); 
-                                            if k.start_line <= usize::try_from(prev_l).unwrap() && usize::try_from(prev_r).unwrap() <= k.end_line {
-                                                break;
-                                            }
-                                        }
-                                        let lines: Vec<&str> = prev_f.split('\n').collect();
-                                        let lines_deleted: Vec<&str> = pair[0].split('\n').collect();
-                                        // let lines_added: Vec<&str> = pair[1].split('\n').collect();
-                                        // dbg!(&prev_f); dbg!(&prev_l); dbg!(&prev_r); dbg!(&lines); dbg!(&lines_deleted); dbg!(&lines_added);
-                                        prefix = "".to_string();
-                                        suffix = "".to_string();
-                                        let ll = i32::try_from(lines_deleted.len()).unwrap();
-                                        let n = usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_l).unwrap();
-                                        let m = usize::try_from(i32::try_from(h.old_start()+ h.old_lines()).unwrap() - prev_l + ll).unwrap();
-                                        // dbg!(&prev_l); dbg!(&prev_r); dbg!(&ll); dbg!(&n); dbg!(&m);
-                                        for i in 0..n {
-                                            prefix = format!("{}{}\n", prefix, lines[i]);
-                                        }
-                                        for i in (m-1)..lines.len() {
-                                            suffix = format!("{}{}\n", suffix, lines[i]);
-                                        }
-                                        // dbg!(&prefix); dbg!(&suffix);
-                                        if (!pair[0].is_empty() || !pair[1].is_empty())
-                                            && (! args.single || related_warnings.len() == 1)
-                                        {
-                                            print_pair(args.function, pair.clone(), prefix.clone(), suffix.clone());
-                                        }
-                                    }
-                                    pair = vec!["".to_string(), "".to_string()];
-                                    if ! args.single || related_warnings.len() == 1 {
-                                        related_warnings.iter().for_each(|m| {
-                                            println!("{}", m.name);
-                                        });
-                                    }
-                                    related_warnings = std::collections::HashSet::new();
+                                    reset_hunk(args.pair, args.single, args.function, function_items, &h, 
+                                               prev_l, prev_r, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
                                 }
                                 let content = std::str::from_utf8(line.content()).unwrap();
                                 match line.origin() {
                                     ' ' => {
                                         if args.pair {
-                                            if ! args.function {
-                                                pair[0] = format!("{}{}", pair[0], content);
-                                                pair[1] = format!("{}{}", pair[1], content);
-                                            }
-                                        } else {
                                             if ! args.single || related_warnings.len() == 1 { //remainder
-                                                print!("{}", line.origin());
-                                                print!("{}", content);
+                                                if ! args.function {
+                                                    pair[0] = format!("{}{}", pair[0], content);
+                                                    pair[1] = format!("{}{}", pair[1], content);
+                                                }
                                             }
+                                        } else if ! args.single || related_warnings.len() == 1 { //remainder
+                                            print!("{}", line.origin());
+                                            print!("{content}");
                                         }
                                     }, 
                                     '+' => {
                                         if args.pair {
-                                            pair[1] = format!("{}{}", pair[1], content);
-                                        } else {
                                             if ! args.single || related_warnings.len() == 1 { //remainder
-                                                print!("{}", line.origin());
-                                                print!("{}", content);
+                                                pair[1] = format!("{}{}", pair[1], content);
                                             }
+                                        } else if ! args.single || related_warnings.len() == 1 { //remainder
+                                            print!("{}", line.origin());
+                                            print!("{content}");
                                         }
                                     },
                                     '-' => { 
                                         if args.pair {
-                                            pair[0] = format!("{}{}", pair[0], content);
-                                        } else {
                                             if ! args.single || related_warnings.len() == 1 { //remainder
-                                                print!("{}", line.origin());
-                                                print!("{}", content);
+                                                pair[0] = format!("{}{}", pair[0], content);
                                             }
-                                        }
+                                        } else if ! args.single || related_warnings.len() == 1 { //remainder
+                                            print!("{}", line.origin());
+                                            print!("{content}");
+                                        } 
                                     },
                                     _ => { // @@
                                         if args.pair {
-                                            if !args.function {
-                                                pair[0] = format!("{}{}", pair[0], content);
+                                            if ! args.single || related_warnings.len() == 1 { //remainder
+                                                if !args.function {
+                                                    pair[0] = format!("{}{}", pair[0], content);
+                                                }
                                             }
                                         } else {
                                             if ! args.single || related_warnings.len() == 1 { //remainder
-                                                print!("{}", content);
+                                                print!("{content}");
                                             }
+                                            related_warnings = std::collections::HashSet::new();
                                         }
                                     }
                                 }
                                 prev_hunk = h.old_start();
                                 true
                             } else {
+                                related_warnings = std::collections::HashSet::new();
                                 prev_hunk = h.old_start();
                                 true
                             }
@@ -743,6 +708,59 @@ fn run(args: Args) {
 
     #[cfg(fix)]
     fix_warnings(flags, &all_warnings);
+}
+
+fn reset_hunk(in_pair: bool, single: bool, function: bool, 
+              function_items: HashMap<LineRange, &[u8]>, 
+              h: &git2::DiffHunk, 
+              mut prev_l: i32, 
+              mut prev_r: i32, 
+              prefix: &mut String, 
+              suffix: &mut String,
+              pair: &mut Vec<String>,
+              related_warnings: &mut std::collections::HashSet<Ran>) {
+    if in_pair { 
+        let mut prev_f = "".to_string();
+        for k in function_items.keys() {
+            let v = function_items.get(k).unwrap();
+            prev_f = format!("{}", std::str::from_utf8(v).unwrap());
+            prev_l = i32::try_from(h.old_start() - 1).unwrap(); 
+            // dbg!(&h);
+            prev_r = i32::try_from(h.old_start() + h.old_lines() - 1).unwrap(); 
+            if k.start_line <= usize::try_from(prev_l).unwrap() && usize::try_from(prev_r).unwrap() <= k.end_line {
+                break;
+            }
+        }
+        let lines: Vec<&str> = prev_f.split('\n').collect();
+        let lines_deleted: Vec<&str> = pair[0].split('\n').collect();
+        // let lines_added: Vec<&str> = pair[1].split('\n').collect();
+        // dbg!(&prev_f); dbg!(&prev_l); dbg!(&prev_r); dbg!(&lines); dbg!(&lines_deleted); dbg!(&lines_added);
+        *prefix = "".to_string();
+        *suffix = "".to_string();
+        let ll = i32::try_from(lines_deleted.len()).unwrap();
+        let n = usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_l).unwrap();
+        let m = usize::try_from(i32::try_from(h.old_start()+ h.old_lines()).unwrap() - prev_l + ll).unwrap();
+        // dbg!(&prev_l); dbg!(&prev_r); dbg!(&ll); dbg!(&n); dbg!(&m);
+        for i in 0..n {
+            *prefix = format!("{}{}\n", *prefix, lines[i]);
+        }
+        for i in (m-1)..lines.len() {
+            *suffix = format!("{}{}\n", *suffix, lines[i]);
+        }
+        // dbg!(&prefix); dbg!(&suffix);
+        if (!pair[0].is_empty() || !pair[1].is_empty())
+            && (! single || related_warnings.len() == 1)
+        {
+            print_pair(function, pair.clone(), prefix.clone(), suffix.clone());
+        }
+    }
+    *pair = vec!["".to_string(), "".to_string()];
+    if ! single || related_warnings.len() == 1 {
+        related_warnings.iter().for_each(|m| {
+            println!("{}", m.name);
+        });
+    }
+    *related_warnings = std::collections::HashSet::new();
 }
 
 fn print_pair(function: bool, pair: Vec<String>, prefix: String, suffix: String) {
@@ -1352,59 +1370,12 @@ fn main() {
                 "512236bac29f09ca798c93020ce377c30a4ed2a5"), @r###"
         There are 30 warnings in 1 files.
         #[Warning(clippy::len_zero)
-        @@ -107 +107 @@ fn remove_previously_generated_files() {
-            if output.len() != 0 {
-        === 19a3477889393ea2cdd0edcb5e6ab30c ===
-            if !output.is_empty() {
         "###);
         insta::assert_snapshot!(rd_setup(Args { patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true, },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5"), @r###"
         There are 30 warnings in 1 files.
         #[Warning(clippy::len_zero)
-        fn remove_previously_generated_files() {
-            if output.len() != 0 {
-                .args(&[".", "-name", "*.rs.1"])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let output = command
-                .wait_with_output()
-                .expect("failed to aquire programm output").stdout;
-            if output.len() != 0 {
-                println!("Removed previously generated warning files")
-            }
-            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
-                let mut command = Command::new("rm")
-                .args(&["-f", tmp])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-                command.wait().expect("problem with file deletion");
-            });
-        }
-        === 19a3477889393ea2cdd0edcb5e6ab30c ===
-        fn remove_previously_generated_files() {
-            if !output.is_empty() {
-                .args(&[".", "-name", "*.rs.1"])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let output = command
-                .wait_with_output()
-                .expect("failed to aquire programm output").stdout;
-            if output.len() != 0 {
-                println!("Removed previously generated warning files")
-            }
-            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
-                let mut command = Command::new("rm")
-                .args(&["-f", tmp])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-                command.wait().expect("problem with file deletion");
-            });
-        }
         "###);
     }
 
@@ -1422,6 +1393,7 @@ fn main() {
         -                }
         +            if m.start <= i && i < m.end && i == m.start {
         +                output.extend(format!("<{}>", m.name).as_bytes());
+        #[Warning(clippy::unwrap_used)
         -        let file_name = path
         -            .parent()
         -            .unwrap()
@@ -1434,6 +1406,7 @@ fn main() {
         -        }            
         +            std::fs::create_dir(file_name.parent().unwrap()).ok();
         +        }
+        #[Warning(clippy::expect_used)
         -        .expect("failed to aquire programm output").stdout;
         +        .expect("failed to aquire programm output")
         +        .stdout;
@@ -1462,15 +1435,16 @@ fn main() {
                 "375981bb06cf819332c202cdd09d5a8c48e296db"), @r###"
         There are 27 warnings in 1 files.
         #[Warning(clippy::collapsible_if)
+        #[Warning(clippy::unwrap_used)
         fn remove_previously_generated_files() {
-            String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
-                let mut command = Command::new("rm")
-                .args(["-f", tmp])
-                .stdout(Stdio::piped())
+                    std::fs::create_dir(&file_name.parent().unwrap()).ok();
+                }            
                 .spawn()
                 .unwrap();
-                command.wait().expect("problem with file deletion");
-            });
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if !output.is_empty() {
                 println!("Removed previously generated warning files")
             }
             String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
@@ -1484,17 +1458,14 @@ fn main() {
         }
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
         fn remove_previously_generated_files() {
-            String::from_utf8(output)
-                .expect("programm output was not valid utf-8")
-                .split('\n')
-                .for_each(|tmp| {
-                    let mut command = Command::new("rm")
-                        .args(["-f", tmp])
-                        .stdout(Stdio::piped())
-                        .spawn()
-                        .unwrap();
-                    command.wait().expect("problem with file deletion");
-                });
+                    std::fs::create_dir(file_name.parent().unwrap()).ok();
+                }
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if !output.is_empty() {
                 println!("Removed previously generated warning files")
             }
             String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
@@ -1506,6 +1477,7 @@ fn main() {
                 command.wait().expect("problem with file deletion");
             });
         }
+        #[Warning(clippy::expect_used)
         "###);
     }
 
