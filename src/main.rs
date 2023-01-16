@@ -136,9 +136,9 @@ pub struct LineRange {
 }
 
 // Split up the Rust source_file into individual items, indiced by their start_byte offsets
-fn splitup(source: &[u8]) -> anyhow::Result<HashMap<LineRange, &[u8]>> {
-    let mut output: HashMap<LineRange, &[u8]> = HashMap::new();
-    if let Ok(s) = std::str::from_utf8(source) {
+fn splitup(source: String) -> anyhow::Result<HashMap<LineRange, String>> {
+    let mut output: HashMap<LineRange, String> = HashMap::new();
+    if let Ok(s) = std::str::from_utf8(source.as_bytes()) {
         let tree = parse(s, "rust");
         if let Ok(query) = language::Language::Rust.parse_query(
             "([
@@ -161,7 +161,7 @@ fn splitup(source: &[u8]) -> anyhow::Result<HashMap<LineRange, &[u8]>> {
             let captures = query.capture_names().to_vec();
             let mut cursor = QueryCursor::new();
             let extracted = cursor
-                .matches(&query, tree.root_node(), source)
+                .matches(&query, tree.root_node(), source.as_bytes())
                 .flat_map(|query_match| query_match.captures)
                 .map(|capture| {
                     if let Ok(idx) = usize::try_from(capture.index) {
@@ -187,9 +187,9 @@ fn splitup(source: &[u8]) -> anyhow::Result<HashMap<LineRange, &[u8]>> {
                 .collect::<anyhow::Result<Vec<ExtractedNode>>>()?;
             for m in extracted {
                 if m.name == "fn" {
-                    if let Ok(code) = std::str::from_utf8(&source[m.start_byte..m.end_byte]) {
+                    if let Ok(code) = std::str::from_utf8(&source.as_bytes()[m.start_byte..m.end_byte]) {
                         let lr = LineRange {start_byte: m.start_byte, start_line: m.start_line, end_line: m.end_line};
-                        output.insert(lr, code.as_bytes());
+                        output.insert(lr, code.to_string());
                     }
                 }
             }
@@ -598,18 +598,10 @@ fn run(args: Args) {
                     related_warnings = std::collections::HashSet::new();
                     let mut pair = vec!["".to_string(), "".to_string()];
                     let prev_l: i32 = 0;
-                    let prev_r: i32 = 0;
                     let mut prefix = "".to_string();
                     let mut suffix = "".to_string();
                     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
                         let p = delta.old_file().path().unwrap();
-                        let mut function_items = HashMap::new();
-                        // let cd = std::env::current_dir().unwrap();
-                        // dbg!(&p); dbg!(&cd);
-                        let source = read_to_string(p).unwrap(); 
-                        if let Ok(items) = splitup(source.as_bytes()) {
-                            function_items = items;
-                        }
                         let mut overlap = false;
                         if let Some(h) = hunk {
                             all_warnings.iter_mut().for_each(|(k, v)| {
@@ -627,8 +619,9 @@ fn run(args: Args) {
                             });
                             if overlap {
                                 if prev_hunk == 0 || prev_hunk != h.old_start() {
-                                    reset_hunk(args.pair, args.single, args.function, function_items, &h, 
-                                               prev_l, prev_r, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
+                                    reset_hunk(args.pair, args.single, args.function, 
+                                               &h, &p, 
+                                               prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
                                 }
                                 let content = std::str::from_utf8(line.content()).unwrap();
                                 match line.origin() {
@@ -666,6 +659,9 @@ fn run(args: Args) {
                                         } 
                                     },
                                     _ => { // @@
+                                        let p = delta.old_file().path().unwrap();
+                                        reset_hunk(args.pair, args.single, args.function, &h, &p,
+                                               prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
                                         if args.pair {
                                             if ! args.single || related_warnings.len() == 1 { //remainder
                                                 if !args.function {
@@ -710,23 +706,27 @@ fn run(args: Args) {
     fix_warnings(flags, &all_warnings);
 }
 
+fn get_function_items(p: &std::path::Path) -> Result<HashMap<LineRange, String>, anyhow::Error> {
+    splitup(read_to_string(p).unwrap())
+}
+ 
 fn reset_hunk(in_pair: bool, single: bool, function: bool, 
-              function_items: HashMap<LineRange, &[u8]>, 
               h: &git2::DiffHunk, 
+              p: &std::path::Path,
               mut prev_l: i32, 
-              mut prev_r: i32, 
               prefix: &mut String, 
               suffix: &mut String,
               pair: &mut Vec<String>,
               related_warnings: &mut std::collections::HashSet<Ran>) {
+    let function_items = get_function_items(p).unwrap();
     if in_pair { 
         let mut prev_f = "".to_string();
         for k in function_items.keys() {
             let v = function_items.get(k).unwrap();
-            prev_f = format!("{}", std::str::from_utf8(v).unwrap());
+            prev_f = v.clone();
             prev_l = i32::try_from(h.old_start() - 1).unwrap(); 
             // dbg!(&h);
-            prev_r = i32::try_from(h.old_start() + h.old_lines() - 1).unwrap(); 
+            let prev_r = i32::try_from(h.old_start() + h.old_lines() - 1).unwrap(); 
             if k.start_line <= usize::try_from(prev_l).unwrap() && usize::try_from(prev_r).unwrap() <= k.end_line {
                 break;
             }
