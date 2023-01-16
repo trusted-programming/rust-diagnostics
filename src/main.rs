@@ -54,7 +54,7 @@ struct Args {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-struct Ran {
+struct Warning {
     name: String,
     start: usize,
     end: usize,
@@ -68,7 +68,7 @@ struct Ran {
 }
 
 // insert diagnostic code as an markup element around the code causing the diagnostic message
-fn markup(source: &[u8], map: Vec<Ran>) -> Vec<u8> {
+fn markup(source: &[u8], map: Vec<Warning>) -> Vec<u8> {
     let mut output = Vec::new();
     for (i, c) in source.iter().enumerate() {
         for m in &map {
@@ -109,7 +109,7 @@ use std::num::Wrapping;
 
 #[cfg(fix)]
 // list the relevant rules as comments
-fn markup_rules(start: Wrapping<usize>, end: Wrapping<usize>, map: Vec<Ran>) -> Vec<u8> {
+fn markup_rules(start: Wrapping<usize>, end: Wrapping<usize>, map: Vec<Warning>) -> Vec<u8> {
     let mut output = Vec::new();
     for m in &map {
         if start <= Wrapping(m.start) && Wrapping(m.end) <= end {
@@ -206,7 +206,7 @@ mod fix {
         std::fs::write(file_name, content).ok();
     }
 }
-fn to_diagnostic(map: &mut HashMap<String, Vec<Ran>>, args: Vec<String>) {
+fn to_diagnostic(map: &mut HashMap<String, Vec<Warning>>, args: Vec<String>) {
     if let Ok(mut command) = Command::new("cargo")
         .args(args)
         .stdout(Stdio::piped())
@@ -220,7 +220,7 @@ fn to_diagnostic(map: &mut HashMap<String, Vec<Ran>>, args: Vec<String>) {
                         if let Ok(x) = usize::try_from(s.byte_start) {
                             if let Ok(y) = usize::try_from(s.byte_end) {
                                 if let Some(message_code) = &msg.message.code {
-                                    let r = Ran {
+                                    let r = Warning {
                                         name: format!(
                                             "#[{:?}({})",
                                             msg.message.level,
@@ -280,7 +280,7 @@ fn rustflags() -> Vec<String> {
 }
 
 // markup all warnings into diagnostics
-fn diagnose_all_warnings(flags: Vec<String>) -> HashMap<String, Vec<Ran>> {
+fn diagnose_all_warnings(flags: Vec<String>) -> HashMap<String, Vec<Warning>> {
     let mut args = vec![
         "clippy".to_string(),
         "--message-format=json".to_string(),
@@ -289,7 +289,7 @@ fn diagnose_all_warnings(flags: Vec<String>) -> HashMap<String, Vec<Ran>> {
     for flag in flags {
         args.push(format!("-Wclippy::{}", flag));
     }
-    let mut map: HashMap<String, Vec<Ran>> = HashMap::new();
+    let mut map: HashMap<String, Vec<Warning>> = HashMap::new();
     to_diagnostic(&mut map, args);
     if !map.is_empty() {
         let mut markup_map: HashMap<String, String> = HashMap::new();
@@ -322,16 +322,16 @@ fn diagnose_all_warnings(flags: Vec<String>) -> HashMap<String, Vec<Ran>> {
 
 #[cfg(fix)]
 // process warnings from one RUSTC_FLAG at a time
-fn fix_warnings(flags: Vec<String>, map: &HashMap<String, Vec<Ran>>) {
+fn fix_warnings(flags: Vec<String>, map: &HashMap<String, Vec<Warning>>) {
     for flag in &flags {
-        let mut flagged_map: HashMap<String, Vec<Ran>> = HashMap::new();
+        let mut flagged_map: HashMap<String, Vec<Warning>> = HashMap::new();
         for file in map.keys() {
             if let Some(v) = map.get(file) {
                 let mut new_v = Vec::new();
                 for r in v {
                     let rule = &flag[2..];
                     if r.name == format!("#[Warning({})", &rule) {
-                        let r1 = Ran {
+                        let r1 = Warning {
                             name: r.name.clone(),
                             start: r.start,
                             end: r.end,
@@ -375,7 +375,7 @@ fn fix_warnings(flags: Vec<String>, map: &HashMap<String, Vec<Ran>>) {
             for flag in &flags {
                 args.push(flag.to_string());
             }
-            let mut fixed_map: HashMap<String, Vec<Ran>> = HashMap::new();
+            let mut fixed_map: HashMap<String, Vec<Warning>> = HashMap::new();
             to_diagnostic(&mut fixed_map, args);
             for file in flagged_map.keys() {
                 if let Ok(source) = read_to_string(file) {
@@ -434,16 +434,8 @@ fn checkout(commit_id: git2::Oid) {
                ).ok();
 }
 
-
-fn run(args: Args) {
-    remove_previously_generated_files("./diagnostics", "*.rs"); // marked up
-    #[cfg(fix)]
-    {
-        remove_previously_generated_files("./original", "*.rs"); // before fix
-        remove_previously_generated_files(".", "*.2.rs"); // transformed from
-        remove_previously_generated_files(".", "*.3.rs"); // transformed to
-    }
-    let mut flags = args.flags;
+fn get_flags(default: Vec<String>) -> Vec<String> {
+    let mut flags = default;
     if flags.is_empty() {
         flags = vec![
             "ptr_arg".to_string(),
@@ -498,7 +490,10 @@ fn run(args: Args) {
             "disallowed_types".to_string(),
         ];
     }
-    let mut all_warnings = diagnose_all_warnings(flags.clone());
+    flags
+}
+
+fn print_warning_count(all_warnings: HashMap<String, Vec<Warning>>) {
     let mut count = 0;
     all_warnings.iter().for_each(|(_k, v)| {
         count += v.len();
@@ -508,200 +503,218 @@ fn run(args: Args) {
         count,
         all_warnings.len()
     );
-    let patch = args.patch;
-    if patch.is_some() {
-        #[cfg(feature = "patch")]
-        {
-            if let Some(id) = patch {
-                let repo = git2::Repository::open(".").unwrap();
-                let old_id = repo.head().unwrap().target().unwrap();
-                let c1 = repo
-                    .find_commit(repo.head().unwrap().target().unwrap())
-                    .unwrap();
-                let c2 = repo.find_commit(git2::Oid::from_str(&id).unwrap()).unwrap();
-                let a = Some(c1.tree().unwrap());
-                let b = Some(c2.tree().unwrap());
-                let mut diffopts2 = git2::DiffOptions::new();
-                diffopts2.context_lines(0);
-                let diff = repo
-                    .diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2))
-                    .unwrap();
-                let mut prev_hunk = 0;
-                let mut related_warnings = std::collections::HashSet::new();
-                diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
-                    let p = delta.old_file().path().unwrap();
-                    let mut overlap = false;
-                    if let Some(h) = hunk {
-                        all_warnings.iter_mut().for_each(|(k, v)| {
-                            v.iter_mut().for_each(|m| {
-                                if std::path::Path::new(k) == p
-                                    && usize::try_from(h.old_start()).unwrap() <= m.end_line
-                                    && usize::try_from(h.old_start() + h.old_lines()).unwrap()
-                                        >= m.start_line
-                                {
-                                    overlap = true;
-                                    m.fixed = true;
-                                    related_warnings.insert(m.clone());
+}
+
+#[cfg(feature = "patch")]
+fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool, args_function: bool, args_single: bool,
+                mut all_warnings: HashMap<String, Vec<Warning>>, flags: Vec<String>) 
+{
+    if let Some(id) = args_patch {
+        let repo = git2::Repository::open(".").unwrap();
+        let old_id = repo.head().unwrap().target().unwrap();
+        let c1 = repo
+            .find_commit(repo.head().unwrap().target().unwrap())
+            .unwrap();
+        let c2 = repo.find_commit(git2::Oid::from_str(&id).unwrap()).unwrap();
+        let a = Some(c1.tree().unwrap());
+        let b = Some(c2.tree().unwrap());
+        let mut diffopts2 = git2::DiffOptions::new();
+        diffopts2.context_lines(0);
+        let diff = repo
+            .diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2))
+            .unwrap();
+        let mut prev_hunk = 0;
+        let mut related_warnings = std::collections::HashSet::new();
+        diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
+            let p = delta.old_file().path().unwrap();
+            let mut overlap = false;
+            if let Some(h) = hunk {
+                all_warnings.iter_mut().for_each(|(k, v)| {
+                    v.iter_mut().for_each(|m| {
+                        if std::path::Path::new(k) == p
+                            && usize::try_from(h.old_start()).unwrap() <= m.end_line
+                            && usize::try_from(h.old_start() + h.old_lines()).unwrap()
+                                >= m.start_line
+                        {
+                            overlap = true;
+                            m.fixed = true;
+                            related_warnings.insert(m.clone());
+                        }
+                    });
+                });
+                if overlap {
+                    if prev_hunk == 0 || prev_hunk != h.old_start() {
+                        related_warnings.iter().for_each(|m| {
+                            if ! args_confirm {
+                                println!("{}", m.name);
+                            }
+                        });
+                        related_warnings = std::collections::HashSet::new();
+                    }
+                    if ! args_confirm {
+                        match line.origin() {
+                            ' ' | '+' | '-' => print!("{}", line.origin()),
+                            _ => {}
+                        }
+                        print!("{}", std::str::from_utf8(line.content()).unwrap());
+                    }
+                    prev_hunk = h.old_start();
+                    true
+                } else {
+                    related_warnings = std::collections::HashSet::new();
+                    prev_hunk = h.old_start();
+                    true
+                }
+            } else {
+                true
+            }
+        })
+        .ok();
+        if args_confirm {
+            // We go through the 2nd pass, to output only those confirmed fixes
+            let oid = git2::Oid::from_str(&id).unwrap();
+            checkout(oid);
+            let all_new_warnings = diagnose_all_warnings(flags);
+            all_warnings.iter_mut().for_each(|(k1, v1)| {
+                v1.iter_mut().for_each(|m1| {
+                    if m1.fixed {
+                        let mut confirmed = true;
+                        all_new_warnings.iter().for_each(|(k2, v2)| {
+                            v2.iter().for_each(|m2| {
+                                if k1 == k2 && m1.start_line <= m2.end_line && m1.end_line >= m2.start_line {
+                                   confirmed = false;
                                 }
                             });
                         });
-                        if overlap {
-                            if prev_hunk == 0 || prev_hunk != h.old_start() {
-                                related_warnings.iter().for_each(|m| {
-                                    if ! args.confirm {
-                                        println!("{}", m.name);
-                                    }
-                                });
-                                related_warnings = std::collections::HashSet::new();
-                            }
-                            if ! args.confirm {
-                                match line.origin() {
-                                    ' ' | '+' | '-' => print!("{}", line.origin()),
-                                    _ => {}
-                                }
-                                print!("{}", std::str::from_utf8(line.content()).unwrap());
-                            }
-                            prev_hunk = h.old_start();
-                            true
-                        } else {
-                            related_warnings = std::collections::HashSet::new();
-                            prev_hunk = h.old_start();
-                            true
-                        }
-                    } else {
-                        true
+                        m1.fixed = confirmed;
                     }
-                })
-                .ok();
-                if args.confirm {
-                    // We go through the 2nd pass, to output only those confirmed fixes
-                    let oid = git2::Oid::from_str(&id).unwrap();
-                    checkout(oid);
-                    let all_new_warnings = diagnose_all_warnings(flags);
-                    all_warnings.iter_mut().for_each(|(k1, v1)| {
-                        v1.iter_mut().for_each(|m1| {
-                            if m1.fixed {
-                                let mut confirmed = true;
-                                all_new_warnings.iter().for_each(|(k2, v2)| {
-                                    v2.iter().for_each(|m2| {
-                                        if k1 == k2 && m1.start_line <= m2.end_line && m1.end_line >= m2.start_line {
-                                           confirmed = false;
-                                        }
-                                    });
-                                });
-                                m1.fixed = confirmed;
+                });
+            });
+            checkout(old_id);
+            prev_hunk = 0;
+            related_warnings = std::collections::HashSet::new();
+            let mut pair = vec!["".to_string(), "".to_string()];
+            let prev_l: i32 = 0;
+            let mut prefix = "".to_string();
+            let mut suffix = "".to_string();
+            diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
+                let p = delta.old_file().path().unwrap();
+                let mut overlap = false;
+                if let Some(h) = hunk {
+                    all_warnings.iter_mut().for_each(|(k, v)| {
+                        v.iter_mut().for_each(|m| {
+                            if m.fixed && std::path::Path::new(k) == p
+                                && usize::try_from(h.old_start()).unwrap() <= m.end_line
+                                && usize::try_from(h.old_start() + h.old_lines()).unwrap()
+                                    >= m.start_line
+                            {
+                                // println!("@@{}:{}@@ overlaps with {}:{}", h.old_start(), h.old_lines(), m.start_line, m.end_line);
+                                overlap = true;
+                                related_warnings.insert(m.clone());
                             }
                         });
                     });
-                    checkout(old_id);
-                    prev_hunk = 0;
-                    related_warnings = std::collections::HashSet::new();
-                    let mut pair = vec!["".to_string(), "".to_string()];
-                    let prev_l: i32 = 0;
-                    let mut prefix = "".to_string();
-                    let mut suffix = "".to_string();
-                    diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
-                        let p = delta.old_file().path().unwrap();
-                        let mut overlap = false;
-                        if let Some(h) = hunk {
-                            all_warnings.iter_mut().for_each(|(k, v)| {
-                                v.iter_mut().for_each(|m| {
-                                    if m.fixed && std::path::Path::new(k) == p
-                                        && usize::try_from(h.old_start()).unwrap() <= m.end_line
-                                        && usize::try_from(h.old_start() + h.old_lines()).unwrap()
-                                            >= m.start_line
-                                    {
-                                        // println!("@@{}:{}@@ overlaps with {}:{}", h.old_start(), h.old_lines(), m.start_line, m.end_line);
-                                        overlap = true;
-                                        related_warnings.insert(m.clone());
-                                    }
-                                });
-                            });
-                            if overlap {
-                                if prev_hunk == 0 || prev_hunk != h.old_start() {
-                                    reset_hunk(args.pair, args.single, args.function, 
-                                               &h, &p, 
-                                               prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
-                                }
-                                let content = std::str::from_utf8(line.content()).unwrap();
-                                match line.origin() {
-                                    ' ' => {
-                                        if args.pair {
-                                            if ! args.single || related_warnings.len() == 1 { //remainder
-                                                if ! args.function {
-                                                    pair[0] = format!("{}{}", pair[0], content);
-                                                    pair[1] = format!("{}{}", pair[1], content);
-                                                }
-                                            }
-                                        } else if ! args.single || related_warnings.len() == 1 { //remainder
-                                            print!("{}", line.origin());
-                                            print!("{content}");
-                                        }
-                                    }, 
-                                    '+' => {
-                                        if args.pair {
-                                            if ! args.single || related_warnings.len() == 1 { //remainder
-                                                pair[1] = format!("{}{}", pair[1], content);
-                                            }
-                                        } else if ! args.single || related_warnings.len() == 1 { //remainder
-                                            print!("{}", line.origin());
-                                            print!("{content}");
-                                        }
-                                    },
-                                    '-' => { 
-                                        if args.pair {
-                                            if ! args.single || related_warnings.len() == 1 { //remainder
-                                                pair[0] = format!("{}{}", pair[0], content);
-                                            }
-                                        } else if ! args.single || related_warnings.len() == 1 { //remainder
-                                            print!("{}", line.origin());
-                                            print!("{content}");
-                                        } 
-                                    },
-                                    _ => { // @@
-                                        let p = delta.old_file().path().unwrap();
-                                        reset_hunk(args.pair, args.single, args.function, &h, &p,
-                                               prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
-                                        if args.pair {
-                                            if ! args.single || related_warnings.len() == 1 { //remainder
-                                                if !args.function {
-                                                    pair[0] = format!("{}{}", pair[0], content);
-                                                }
-                                            }
-                                        } else {
-                                            if ! args.single || related_warnings.len() == 1 { //remainder
-                                                print!("{content}");
-                                            }
-                                            related_warnings = std::collections::HashSet::new();
-                                        }
-                                    }
-                                }
-                                prev_hunk = h.old_start();
-                                true
-                            } else {
-                                related_warnings = std::collections::HashSet::new();
-                                prev_hunk = h.old_start();
-                                true
-                            }
-                        } else {
-                            true
+                    if overlap {
+                        if prev_hunk == 0 || prev_hunk != h.old_start() {
+                            reset_hunk(args_pair, args_single, args_function, 
+                                       &h, &p, 
+                                       prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
                         }
-                    })
-                    .ok();
-                    if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) 
-                       && (! args.single || related_warnings.len() == 1) { //remainder
-                                                                                   //
-                        print_pair(args.function, pair.clone(), prefix.clone(), suffix.clone());
+                        let content = std::str::from_utf8(line.content()).unwrap();
+                        match line.origin() {
+                            ' ' => {
+                                if args_pair {
+                                    if ! args_single || related_warnings.len() == 1 { //remainder
+                                        if ! args_function {
+                                            pair[0] = format!("{}{}", pair[0], content);
+                                            pair[1] = format!("{}{}", pair[1], content);
+                                        }
+                                    }
+                                } else if ! args_single || related_warnings.len() == 1 { //remainder
+                                    print!("{}", line.origin());
+                                    print!("{content}");
+                                }
+                            }, 
+                            '+' => {
+                                if args_pair {
+                                    if ! args_single || related_warnings.len() == 1 { //remainder
+                                        pair[1] = format!("{}{}", pair[1], content);
+                                    }
+                                } else if ! args_single || related_warnings.len() == 1 { //remainder
+                                    print!("{}", line.origin());
+                                    print!("{content}");
+                                }
+                            },
+                            '-' => { 
+                                if args_pair {
+                                    if ! args_single || related_warnings.len() == 1 { //remainder
+                                        pair[0] = format!("{}{}", pair[0], content);
+                                    }
+                                } else if ! args_single || related_warnings.len() == 1 { //remainder
+                                    print!("{}", line.origin());
+                                    print!("{content}");
+                                } 
+                            },
+                            _ => { // @@
+                                let p = delta.old_file().path().unwrap();
+                                reset_hunk(args_pair, args_single, args_function, &h, &p,
+                                       prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
+                                if args_pair {
+                                    if ! args_single || related_warnings.len() == 1 { //remainder
+                                        if !args_function {
+                                            pair[0] = format!("{}{}", pair[0], content);
+                                        }
+                                    }
+                                } else {
+                                    if ! args_single || related_warnings.len() == 1 { //remainder
+                                        print!("{content}");
+                                    }
+                                    related_warnings = std::collections::HashSet::new();
+                                }
+                            }
+                        }
+                        prev_hunk = h.old_start();
+                        true
+                    } else {
+                        related_warnings = std::collections::HashSet::new();
+                        prev_hunk = h.old_start();
+                        true
                     }
+                } else {
+                    true
                 }
+            })
+            .ok();
+            if args_pair && (!pair[0].is_empty() || !pair[1].is_empty()) 
+               && (! args_single || related_warnings.len() == 1) { //remainder
+                                                                           //
+                print_pair(args_function, pair.clone(), prefix.clone(), suffix.clone());
             }
         }
+    }
+}
+
+fn run(args: Args) {
+    remove_previously_generated_files("./diagnostics", "*.rs"); // marked up
+    #[cfg(fix)]
+    {
+        remove_previously_generated_files("./original", "*.rs"); // before fix
+        remove_previously_generated_files(".", "*.2.rs"); // transformed from
+        remove_previously_generated_files(".", "*.3.rs"); // transformed to
+    }
+    let flags = get_flags(args.flags);
+    let all_warnings = diagnose_all_warnings(flags.clone());
+    print_warning_count(all_warnings.clone());
+    let patch = args.patch;
+    if patch.is_some() {
+        #[cfg(feature = "patch")]
+        handle_patch(patch, args.confirm, args.pair, args.function, args.single, 
+                     all_warnings, flags);    
         #[cfg(not(feature = "patch"))]
         {
             println!("To use the `--patch` option, please enable the `patch` feature");
         }
     }
-
     #[cfg(fix)]
     fix_warnings(flags, &all_warnings);
 }
@@ -717,7 +730,7 @@ fn reset_hunk(in_pair: bool, single: bool, function: bool,
               prefix: &mut String, 
               suffix: &mut String,
               pair: &mut Vec<String>,
-              related_warnings: &mut std::collections::HashSet<Ran>) {
+              related_warnings: &mut std::collections::HashSet<Warning>) {
     let function_items = get_function_items(p).unwrap();
     if in_pair { 
         let mut prev_f = "".to_string();
@@ -817,9 +830,9 @@ mod fix {
     fn to_fix(
         flag: &str,
         file: &String,
-        warnings: Vec<Ran>,
-        fixed_warnings: Vec<Ran>,
-        remaining_warnings: Vec<Ran>,
+        warnings: Vec<Warning>,
+        fixed_warnings: Vec<Warning>,
+        remaining_warnings: Vec<Warning>,
         input: &String,
         output: &[u8],
     ) {
