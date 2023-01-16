@@ -505,26 +505,51 @@ fn print_warning_count(all_warnings: HashMap<String, Vec<Warning>>) {
     );
 }
 
+fn get_current_id() -> Option<git2::Oid> {
+    if let Ok(repo) = git2::Repository::open(".") {
+        if let Ok(x) = repo.head() {
+            if let Some(y) = x.target() {
+                Some(y)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+#[cfg(feature = "patch")]
+fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff>
+{
+    let c1 = repo
+        .find_commit(repo.head().unwrap().target().unwrap())
+        .unwrap();
+    let c2 = repo.find_commit(git2::Oid::from_str(&id).unwrap()).unwrap();
+    let a = Some(c1.tree().unwrap());
+    let b = Some(c2.tree().unwrap());
+    let mut diffopts2 = git2::DiffOptions::new();
+    diffopts2.context_lines(0);
+    if let Ok(diff) = repo
+        .diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2)) {
+            Some(diff)
+    } else {
+        None
+    }
+}
+
 #[cfg(feature = "patch")]
 fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool, args_function: bool, args_single: bool,
                 mut all_warnings: HashMap<String, Vec<Warning>>, flags: Vec<String>) 
 {
     if let Some(id) = args_patch {
-        let repo = git2::Repository::open(".").unwrap();
-        let old_id = repo.head().unwrap().target().unwrap();
-        let c1 = repo
-            .find_commit(repo.head().unwrap().target().unwrap())
-            .unwrap();
-        let c2 = repo.find_commit(git2::Oid::from_str(&id).unwrap()).unwrap();
-        let a = Some(c1.tree().unwrap());
-        let b = Some(c2.tree().unwrap());
-        let mut diffopts2 = git2::DiffOptions::new();
-        diffopts2.context_lines(0);
-        let diff = repo
-            .diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2))
-            .unwrap();
         let mut prev_hunk = 0;
         let mut related_warnings = std::collections::HashSet::new();
+        let repo = git2::Repository::open(".").unwrap();
+        let old_id = get_current_id().unwrap();
+        let diff = get_diff(&repo, id.clone()).unwrap();
         diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
             let p = delta.old_file().path().unwrap();
             let mut overlap = false;
