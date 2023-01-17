@@ -3,7 +3,7 @@ use cargo_metadata::{diagnostic::Diagnostic, Message};
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fs::read_to_string,
     path::PathBuf,
     process::{Command, Stdio},
@@ -145,7 +145,7 @@ pub struct ExtractedNode<'query> {
     end_line: usize,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LineRange {
     start_byte: usize,
     start_line: usize,
@@ -153,8 +153,8 @@ pub struct LineRange {
 }
 
 // Split up the Rust source_file into individual items, indiced by their start_byte offsets
-fn splitup(source: String) -> anyhow::Result<HashMap<LineRange, String>> {
-    let mut output: HashMap<LineRange, String> = HashMap::new();
+fn splitup(source: String) -> anyhow::Result<BTreeMap<LineRange, String>> {
+    let mut output: BTreeMap<LineRange, String> = BTreeMap::new();
     if let Ok(s) = std::str::from_utf8(source.as_bytes()) {
         let tree = parse(s, "rust");
         if let Ok(query) = language::Language::Rust.parse_query(
@@ -229,7 +229,7 @@ mod fix {
         std::fs::write(file_name, content).ok();
     }
 }
-fn to_diagnostic(map: &mut HashMap<String, Vec<Warning>>, args: Vec<String>) {
+fn to_diagnostic(map: &mut BTreeMap<String, Vec<Warning>>, args: Vec<String>) {
     if let Ok(mut command) = Command::new("cargo")
         .args(args)
         .stdout(Stdio::piped())
@@ -303,7 +303,7 @@ fn rustflags() -> Vec<String> {
 }
 
 // markup all warnings into diagnostics
-fn diagnose_all_warnings(flags: Vec<String>) -> HashMap<String, Vec<Warning>> {
+fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
     let mut args = vec![
         "clippy".to_string(),
         "--message-format=json".to_string(),
@@ -312,10 +312,10 @@ fn diagnose_all_warnings(flags: Vec<String>) -> HashMap<String, Vec<Warning>> {
     for flag in flags {
         args.push(format!("-Wclippy::{}", flag));
     }
-    let mut map: HashMap<String, Vec<Warning>> = HashMap::new();
+    let mut map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
     to_diagnostic(&mut map, args);
     if !map.is_empty() {
-        let mut markup_map: HashMap<String, String> = HashMap::new();
+        let mut markup_map: BTreeMap<String, String> = BTreeMap::new();
         for file in map.keys() {
             if let Ok(source) = read_to_string(file) {
                 if let Some(v) = map.get(file) {
@@ -345,9 +345,9 @@ fn diagnose_all_warnings(flags: Vec<String>) -> HashMap<String, Vec<Warning>> {
 
 #[cfg(fix)]
 // process warnings from one RUSTC_FLAG at a time
-fn fix_warnings(flags: Vec<String>, map: &HashMap<String, Vec<Warning>>) {
+fn fix_warnings(flags: Vec<String>, map: &BTreeMap<String, Vec<Warning>>) {
     for flag in &flags {
-        let mut flagged_map: HashMap<String, Vec<Warning>> = HashMap::new();
+        let mut flagged_map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
         for file in map.keys() {
             if let Some(v) = map.get(file) {
                 let mut new_v = Vec::new();
@@ -370,8 +370,8 @@ fn fix_warnings(flags: Vec<String>, map: &HashMap<String, Vec<Warning>>) {
             }
         }
         if !flagged_map.is_empty() {
-            let mut origin_map: HashMap<String, String> = HashMap::new();
-            let mut markup_map: HashMap<String, String> = HashMap::new();
+            let mut origin_map: BTreeMap<String, String> = BTreeMap::new();
+            let mut markup_map: BTreeMap<String, String> = BTreeMap::new();
             for file in flagged_map.keys() {
                 if let Ok(source) = read_to_string(file) {
                     if let Some(v) = flagged_map.get(file) {
@@ -398,7 +398,7 @@ fn fix_warnings(flags: Vec<String>, map: &HashMap<String, Vec<Warning>>) {
             for flag in &flags {
                 args.push(flag.to_string());
             }
-            let mut fixed_map: HashMap<String, Vec<Warning>> = HashMap::new();
+            let mut fixed_map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
             to_diagnostic(&mut fixed_map, args);
             for file in flagged_map.keys() {
                 if let Ok(source) = read_to_string(file) {
@@ -524,7 +524,7 @@ fn get_flags() -> Vec<String> {
 }
 
 #[cfg(feature = "patch")]
-fn print_warning_count(all_warnings: HashMap<String, Vec<Warning>>) {
+fn print_warning_count(all_warnings: BTreeMap<String, Vec<Warning>>) {
     let mut count = 0;
     all_warnings.iter().for_each(|(_k, v)| {
         count += v.len();
@@ -597,9 +597,21 @@ impl std::fmt::Display for Hunk {
     }
 }
 
+
 #[cfg(feature = "patch")]
-fn get_hunks(diff: git2::Diff) -> HashMap<String, Vec<Hunk>> {
-    let mut map = HashMap::new();
+fn print_hunks(map: BTreeMap<String, Vec<Hunk>>) 
+{
+    map.iter().for_each(|(k, v)| {
+        println!("{k}");
+        v.iter().for_each(|h| {
+            println!("{h}");
+        });
+    });
+}
+
+#[cfg(feature = "patch")]
+fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
+    let mut map = BTreeMap::new();
     let mut hunks: Vec<Hunk> = Vec::new();
     let mut cur_filename = "".to_string();
     let mut cur_hunk = Hunk {
@@ -656,12 +668,6 @@ fn get_hunks(diff: git2::Diff) -> HashMap<String, Vec<Hunk>> {
         true
     })
     .ok();
-    map.iter().for_each(|(k, v)| {
-        println!("{k}");
-        v.iter().for_each(|h| {
-            println!("{h}");
-        });
-    });
     map
 }
 
@@ -722,7 +728,7 @@ fn reset_hunk(
 }
 
 #[cfg(feature = "patch")]
-fn handle_patch(mut all_warnings: HashMap<String, Vec<Warning>>, flags: Vec<String>) {
+fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<String>) {
     let v = get_args();
     let args = &v[0];
     if let Some(id) = &args.patch {
@@ -946,7 +952,7 @@ fn run() {
     fix_warnings(flags, &all_warnings);
 }
 
-fn get_function_items(p: &std::path::Path) -> Result<HashMap<LineRange, String>, anyhow::Error> {
+fn get_function_items(p: &std::path::Path) -> Result<BTreeMap<LineRange, String>, anyhow::Error> {
     splitup(read_to_string(p).unwrap())
 }
 
@@ -1572,7 +1578,7 @@ fn main() {
     // rust-diagnostics --patch $rev2
     // ```
     fn rd_setup<F>(args: Args, rev1: &str, run: F) -> String 
-    where F: Fn(&str, &str) -> (),
+    where F: Fn(&str) -> (),
     {
         let dir = std::path::Path::new("rd");
         let git_dir = std::path::Path::new("rd/.git");
@@ -1592,12 +1598,8 @@ fn main() {
         checkout(oid);
         std::io::set_output_capture(Some(Default::default()));
         my_args(args.clone());
-        let mode = match args.pair {
-            true => "pair",
-            _ => "patch",
-        };
-        let rev2 = args.patch.clone().unwrap();
-        run(mode, rev2.as_str());
+        let rev2 = args.patch.unwrap();
+        run(rev2.as_str());
         let captured = std::io::set_output_capture(None).unwrap();
         let captured = Arc::try_unwrap(captured).unwrap();
         let captured = captured.into_inner().unwrap();
@@ -1606,27 +1608,15 @@ fn main() {
         captured
     }
 
-    fn rd_run(_mode: &str, _rev2: &str) {
+    fn rd_run(_rev2: &str) {
         run();
     }
 
-    fn diff_run(mode: &str, rev2: &str) {
+    fn diff_run(rev2: &str) {
         let repo = git2::Repository::open(".").unwrap();
         let diff = get_diff(&repo, rev2.to_string());
         let hunks = get_hunks(diff.unwrap());
-        let _ = hunks.iter().for_each(|(k, v)| {
-            match mode {
-                "patch" => {
-                    println!("{k}");
-                    let _ = v.iter().for_each(|h| {
-                        println!("{}", h.patch_text);
-                    });
-                }
-                _ => {
-                    println!("Unknown mode {mode}");
-                }
-            }
-        });
+        print_hunks(hunks);
     }
 
     #[test]
@@ -1788,21 +1778,6 @@ fn main() {
             single: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @r###"
-        src/main.rs.1
-        H@@ -13,0 +14 @@ struct Ran {
-        +    note: String,
-
-        H@@ -29 +30,5 @@ fn markup(source: &[u8], map: Vec<Ran>) -> Vec<u8> {
-        -                output.extend(format!("</{}>", m.name).as_bytes());
-        +                match m.note.as_str() {
-        +                    "None" => { output.extend(format!("</{}>", m.name).as_bytes()) },
-        +                    _ => { output.extend(format!("</{}>[[{}]]", m.name, m.note).as_bytes()) },
-        +                }
-        +                
-
-        H@@ -58,0 +64 @@ fn main() {
-        +                        note: format!("{:?}", s.suggested_replacement),
-
         src/main.rs
 
         src/main.rs.1
@@ -1819,8 +1794,6 @@ fn main() {
 
         H@@ -58,0 +64 @@ fn main() {
         +                        note: format!("{:?}", s.suggested_replacement),
-
-        src/main.rs
 
         "###);
      }
@@ -1837,6 +1810,9 @@ fn main() {
             single: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @r###"
+         src/main.rs
+         === 19a3477889393ea2cdd0edcb5e6ab30c ===
+
          src/main.rs.1
          === 19a3477889393ea2cdd0edcb5e6ab30c ===
              note: String,
@@ -1852,11 +1828,6 @@ fn main() {
          === 19a3477889393ea2cdd0edcb5e6ab30c ===
                                  note: format!("{:?}", s.suggested_replacement),
 
-         src/main.rs
-         === 19a3477889393ea2cdd0edcb5e6ab30c ===
-
-         Unknown mode pair
-         Unknown mode pair
          "###);
     }
 }
