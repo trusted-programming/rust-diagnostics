@@ -1,12 +1,14 @@
 #![feature(internal_output_capture)]
 use cargo_metadata::{diagnostic::Diagnostic, Message};
+use once_cell::sync::Lazy;
 use serde::Serialize;
 use std::{
     collections::HashMap,
     fs::read_to_string,
     path::PathBuf,
-    process::{Command, Stdio},
+    process::{Command, Stdio}, sync::Mutex,
 };
+
 #[cfg(patch)]
 mod patch {
     use git2::{Commit, DiffOptions, ObjectType, Repository, Signature, Time};
@@ -29,7 +31,7 @@ mod rustc_flags {
 
 use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
+#[derive(StructOpt, Debug, Clone)]
 struct Args {
     #[structopt(name = "flags", long)]
     /// warnings concerning the warning flags
@@ -51,6 +53,20 @@ struct Args {
     #[structopt(name = "single", long)]
     /// select only those diff records that patch exactly one warning
     single: bool,
+}
+
+static ARGS: Lazy<Mutex<Vec<Args>>> = Lazy::new(|| Mutex::new(vec![]));
+
+fn get_args() -> Vec<Args> {
+    set_args();
+    ARGS.lock().unwrap().to_vec()
+}
+
+fn set_args() {
+    if ARGS.lock().unwrap().len() == 0 {
+        let params = Args::from_args();
+        ARGS.lock().unwrap().push(params);
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -436,9 +452,11 @@ fn checkout(commit_id: git2::Oid)
 }
 
 #[cfg(feature = "patch")]
-fn get_flags(default: Vec<String>) -> Vec<String> 
+fn get_flags() -> Vec<String> 
 {
-    let mut flags = default;
+    let v = get_args();
+    let args = &v[0];
+    let mut flags = args.flags.clone();
     if flags.is_empty() {
         flags = vec![
             "ptr_arg".to_string(),
@@ -547,7 +565,7 @@ fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff>
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct Hunk {
     patch_text: String,
     old_text: String,
@@ -556,6 +574,19 @@ struct Hunk {
     new_text: String,
     new_start_line: u32,
     new_end_line: u32,
+}
+
+
+impl std::fmt::Display for Hunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let v = get_args();
+        let args = &v[0];
+        if args.pair {
+            write!(f, "{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", self.old_text, self.new_text)
+        } else {
+            write!(f, "{}", self.patch_text)
+        }
+    }
 }
 
 #[cfg(feature = "patch")]
@@ -615,15 +646,71 @@ fn get_hunks(diff: git2::Diff) -> HashMap<String, Vec<Hunk>>
         }
         true
     }).ok();
-    dbg!(&map);
+    map.iter().for_each(|(k,v)| {
+        println!("{k}");
+        v.iter().for_each(|h| {
+            println!("{h}");
+        });
+    });
     map
 }
 
 #[cfg(feature = "patch")]
-fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool, args_function: bool, args_single: bool,
-                mut all_warnings: HashMap<String, Vec<Warning>>, flags: Vec<String>) 
+fn reset_hunk(h: &git2::DiffHunk, 
+              p: &std::path::Path,
+              mut prev_l: i32, 
+              prefix: &mut String, 
+              suffix: &mut String,
+              pair: &mut Vec<String>,
+              related_warnings: &mut std::collections::HashSet<Warning>) {
+    let v = get_args();
+    let args = &v[0];
+    let function_items = get_function_items(p).unwrap();
+    if args.pair { 
+        let mut prev_f = "".to_string();
+        for k in function_items.keys() {
+            let v = function_items.get(k).unwrap();
+            prev_f = v.clone();
+            prev_l = i32::try_from(h.old_start() - 1).unwrap(); 
+            let prev_r = i32::try_from(h.old_start() + h.old_lines() - 1).unwrap(); 
+            if k.start_line <= usize::try_from(prev_l).unwrap() && usize::try_from(prev_r).unwrap() <= k.end_line {
+                break;
+            }
+        }
+        let lines: Vec<&str> = prev_f.split('\n').collect();
+        let lines_deleted: Vec<&str> = pair[0].split('\n').collect();
+        *prefix = "".to_string();
+        *suffix = "".to_string();
+        let ll = i32::try_from(lines_deleted.len()).unwrap();
+        let n = usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_l).unwrap();
+        let m = usize::try_from(i32::try_from(h.old_start()+ h.old_lines()).unwrap() - prev_l + ll).unwrap();
+        for i in 0..n {
+            *prefix = format!("{}{}\n", *prefix, lines[i]);
+        }
+        for i in (m-1)..lines.len() {
+            *suffix = format!("{}{}\n", *suffix, lines[i]);
+        }
+        if (!pair[0].is_empty() || !pair[1].is_empty())
+            && (! args.single || related_warnings.len() == 1)
+        {
+            print_pair(pair.clone(), prefix.clone(), suffix.clone());
+        }
+    }
+    *pair = vec!["".to_string(), "".to_string()];
+    if ! args.single || related_warnings.len() == 1 {
+        related_warnings.iter().for_each(|m| {
+            println!("{}", m.name);
+        });
+    }
+    *related_warnings = std::collections::HashSet::new();
+}
+
+#[cfg(feature = "patch")]
+fn handle_patch(mut all_warnings: HashMap<String, Vec<Warning>>, flags: Vec<String>) 
 {
-    if let Some(id) = args_patch {
+    let v = get_args();
+    let args = &v[0];
+    if let Some(id) = &args.patch {
         let mut prev_hunk = 0;
         let mut related_warnings = std::collections::HashSet::new();
         let repo = git2::Repository::open(".").unwrap();
@@ -650,13 +737,13 @@ fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool,
                 if overlap {
                     if prev_hunk == 0 || prev_hunk != h.old_start() {
                         related_warnings.iter().for_each(|m| {
-                            if ! args_confirm {
+                            if ! args.confirm {
                                 println!("{}", m.name);
                             }
                         });
                         related_warnings = std::collections::HashSet::new();
                     }
-                    if ! args_confirm {
+                    if ! args.confirm {
                         match line.origin() {
                             ' ' | '+' | '-' => print!("{}", line.origin()),
                             _ => {}
@@ -675,7 +762,7 @@ fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool,
             }
         })
         .ok();
-        if args_confirm {
+        if args.confirm {
             // We go through the 2nd pass, to output only those confirmed fixes
             let oid = git2::Oid::from_str(&id).unwrap();
             checkout(oid);
@@ -721,57 +808,54 @@ fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool,
                     });
                     if overlap {
                         if prev_hunk == 0 || prev_hunk != h.old_start() {
-                            reset_hunk(args_pair, args_single, args_function, 
-                                       &h, &p, 
-                                       prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
+                            reset_hunk(&h, &p, prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
                         }
                         let content = std::str::from_utf8(line.content()).unwrap();
                         match line.origin() {
                             ' ' => {
-                                if args_pair {
-                                    if ! args_single || related_warnings.len() == 1 { //remainder
-                                        if ! args_function {
+                                if args.pair {
+                                    if ! args.single || related_warnings.len() == 1 { //remainder
+                                        if ! args.function {
                                             pair[0] = format!("{}{}", pair[0], content);
                                             pair[1] = format!("{}{}", pair[1], content);
                                         }
                                     }
-                                } else if ! args_single || related_warnings.len() == 1 { //remainder
+                                } else if ! args.single || related_warnings.len() == 1 { //remainder
                                     print!("{}", line.origin());
                                     print!("{content}");
                                 }
                             }, 
                             '+' => {
-                                if args_pair {
-                                    if ! args_single || related_warnings.len() == 1 { //remainder
+                                if args.pair {
+                                    if ! args.single || related_warnings.len() == 1 { //remainder
                                         pair[1] = format!("{}{}", pair[1], content);
                                     }
-                                } else if ! args_single || related_warnings.len() == 1 { //remainder
+                                } else if ! args.single || related_warnings.len() == 1 { //remainder
                                     print!("{}", line.origin());
                                     print!("{content}");
                                 }
                             },
                             '-' => { 
-                                if args_pair {
-                                    if ! args_single || related_warnings.len() == 1 { //remainder
+                                if args.pair {
+                                    if ! args.single || related_warnings.len() == 1 { //remainder
                                         pair[0] = format!("{}{}", pair[0], content);
                                     }
-                                } else if ! args_single || related_warnings.len() == 1 { //remainder
+                                } else if ! args.single || related_warnings.len() == 1 { //remainder
                                     print!("{}", line.origin());
                                     print!("{content}");
                                 } 
                             },
                             _ => { // @@
                                 let p = delta.old_file().path().unwrap();
-                                reset_hunk(args_pair, args_single, args_function, &h, &p,
-                                       prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
-                                if args_pair {
-                                    if ! args_single || related_warnings.len() == 1 { //remainder
-                                        if !args_function {
+                                reset_hunk(&h, &p, prev_l, &mut prefix, &mut suffix, &mut pair, &mut related_warnings);
+                                if args.pair {
+                                    if ! args.single || related_warnings.len() == 1 { //remainder
+                                        if !args.function {
                                             pair[0] = format!("{}{}", pair[0], content);
                                         }
                                     }
                                 } else {
-                                    if ! args_single || related_warnings.len() == 1 { //remainder
+                                    if ! args.single || related_warnings.len() == 1 { //remainder
                                         print!("{content}");
                                     }
                                     related_warnings = std::collections::HashSet::new();
@@ -790,16 +874,15 @@ fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool,
                 }
             })
             .ok();
-            if args_pair && (!pair[0].is_empty() || !pair[1].is_empty()) 
-               && (! args_single || related_warnings.len() == 1) { //remainder
-                                                                           //
-                print_pair(args_function, pair.clone(), prefix.clone(), suffix.clone());
+            if args.pair && (!pair[0].is_empty() || !pair[1].is_empty()) 
+               && (! args.single || related_warnings.len() == 1) { //remainder
+                print_pair(pair.clone(), prefix.clone(), suffix.clone());
             }
         }
     }
 }
 
-fn run(args: Args) {
+fn run() {
     remove_previously_generated_files("./diagnostics", "*.rs"); // marked up
     #[cfg(fix)]
     {
@@ -807,19 +890,11 @@ fn run(args: Args) {
         remove_previously_generated_files(".", "*.2.rs"); // transformed from
         remove_previously_generated_files(".", "*.3.rs"); // transformed to
     }
-    let flags = get_flags(args.flags);
+    let flags = get_flags();
     let all_warnings = diagnose_all_warnings(flags.clone());
     print_warning_count(all_warnings.clone());
-    let patch = args.patch;
-    if patch.is_some() {
-        #[cfg(feature = "patch")]
-        handle_patch(patch, args.confirm, args.pair, args.function, args.single, 
-                     all_warnings, flags);    
-        #[cfg(not(feature = "patch"))]
-        {
-            println!("To use the `--patch` option, please enable the `patch` feature");
-        }
-    }
+    #[cfg(feature = "patch")]
+    handle_patch(all_warnings, flags);    
     #[cfg(fix)]
     fix_warnings(flags, &all_warnings);
 }
@@ -827,63 +902,12 @@ fn run(args: Args) {
 fn get_function_items(p: &std::path::Path) -> Result<HashMap<LineRange, String>, anyhow::Error> {
     splitup(read_to_string(p).unwrap())
 }
- 
-fn reset_hunk(in_pair: bool, single: bool, function: bool, 
-              h: &git2::DiffHunk, 
-              p: &std::path::Path,
-              mut prev_l: i32, 
-              prefix: &mut String, 
-              suffix: &mut String,
-              pair: &mut Vec<String>,
-              related_warnings: &mut std::collections::HashSet<Warning>) {
-    let function_items = get_function_items(p).unwrap();
-    if in_pair { 
-        let mut prev_f = "".to_string();
-        for k in function_items.keys() {
-            let v = function_items.get(k).unwrap();
-            prev_f = v.clone();
-            prev_l = i32::try_from(h.old_start() - 1).unwrap(); 
-            // dbg!(&h);
-            let prev_r = i32::try_from(h.old_start() + h.old_lines() - 1).unwrap(); 
-            if k.start_line <= usize::try_from(prev_l).unwrap() && usize::try_from(prev_r).unwrap() <= k.end_line {
-                break;
-            }
-        }
-        let lines: Vec<&str> = prev_f.split('\n').collect();
-        let lines_deleted: Vec<&str> = pair[0].split('\n').collect();
-        // let lines_added: Vec<&str> = pair[1].split('\n').collect();
-        // dbg!(&prev_f); dbg!(&prev_l); dbg!(&prev_r); dbg!(&lines); dbg!(&lines_deleted); dbg!(&lines_added);
-        *prefix = "".to_string();
-        *suffix = "".to_string();
-        let ll = i32::try_from(lines_deleted.len()).unwrap();
-        let n = usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_l).unwrap();
-        let m = usize::try_from(i32::try_from(h.old_start()+ h.old_lines()).unwrap() - prev_l + ll).unwrap();
-        // dbg!(&prev_l); dbg!(&prev_r); dbg!(&ll); dbg!(&n); dbg!(&m);
-        for i in 0..n {
-            *prefix = format!("{}{}\n", *prefix, lines[i]);
-        }
-        for i in (m-1)..lines.len() {
-            *suffix = format!("{}{}\n", *suffix, lines[i]);
-        }
-        // dbg!(&prefix); dbg!(&suffix);
-        if (!pair[0].is_empty() || !pair[1].is_empty())
-            && (! single || related_warnings.len() == 1)
-        {
-            print_pair(function, pair.clone(), prefix.clone(), suffix.clone());
-        }
-    }
-    *pair = vec!["".to_string(), "".to_string()];
-    if ! single || related_warnings.len() == 1 {
-        related_warnings.iter().for_each(|m| {
-            println!("{}", m.name);
-        });
-    }
-    *related_warnings = std::collections::HashSet::new();
-}
 
-fn print_pair(function: bool, pair: Vec<String>, prefix: String, suffix: String) {
-    // dbg!(&prefix); dbg!(&suffix);
-    if function {
+
+fn print_pair(pair: Vec<String>, prefix: String, suffix: String) {
+    let v = get_args();
+    let args = &v[0];
+    if args.function {
         print!("{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}", 
            format!("{}{}{}", prefix, pair[0], suffix),format!("{}{}{}", prefix, pair[1], suffix));
     } else {
@@ -893,8 +917,7 @@ fn print_pair(function: bool, pair: Vec<String>, prefix: String, suffix: String)
 
 // Run cargo clippy to generate warnings from "foo.rs" into temporary "foo.rs.1" files
 fn main() {
-    let args = Args::from_args();
-    run(args);
+    run();
 }
 
 #[cfg(fix)]
@@ -917,7 +940,7 @@ mod fix {
             file.to_string(),
             "unwrap_used.txl".to_string(),
         ];
-        if let Ok(output) = txl_rs::txl(args) {
+        if let Ok(output) = txl_rs::txl(ARGS) {
             std::fs::write(file, output).ok();
             if let Ok(command) = Command::new("rustfmt")
                 .args([file])
@@ -1084,7 +1107,9 @@ fn main() {
                 let _ = std::fs::write("abc/src/main.rs", code);
                 let cd = std::env::current_dir().unwrap();
                 std::env::set_current_dir(dir).ok();
-                run(args);
+                ARGS.lock().unwrap().pop();
+                ARGS.lock().unwrap().push(args);
+                run();
                 assert!(std::path::Path::new("diagnostics/src/main.rs").exists());
                 if let Ok(s) = std::fs::read_to_string("diagnostics/src/main.rs") {
                     assert_eq! (s, r###"
@@ -1206,7 +1231,9 @@ fn main() {
                 single: false,
             };
             std::io::set_output_capture(Some(Default::default()));
-            run(args);
+            ARGS.lock().unwrap().pop();
+            ARGS.lock().unwrap().push(args);
+            run();
             let captured = std::io::set_output_capture(None).unwrap();
             let captured = Arc::try_unwrap(captured).unwrap();
             let captured = captured.into_inner().unwrap();
@@ -1250,7 +1277,9 @@ fn main() {
                 single: false,
             };
             std::io::set_output_capture(Some(Default::default()));
-            run(args);
+            ARGS.lock().unwrap().pop();
+            ARGS.lock().unwrap().push(args);
+            run();
             let captured = std::io::set_output_capture(None).unwrap();
             let captured = Arc::try_unwrap(captured).unwrap();
             let captured = captured.into_inner().unwrap();
@@ -1282,7 +1311,9 @@ fn main() {
                 single: false,
             };
             std::io::set_output_capture(Some(Default::default()));
-            run(args);
+            ARGS.lock().unwrap().pop();
+            ARGS.lock().unwrap().push(args);
+            run();
             let captured = std::io::set_output_capture(None).unwrap();
             let captured = Arc::try_unwrap(captured).unwrap();
             let captured = captured.into_inner().unwrap();
@@ -1390,7 +1421,9 @@ fn main() {
                     function: false,
                     single: false,
                 };
-                run(args);
+                ARGS.lock().unwrap().pop();
+                ARGS.lock().unwrap().push(args);
+                run();
                 assert!(!std::path::Path::new("test/transform/Wclippy::unwrap_used/0.2.rs").exists());
                 std::env::set_current_dir(cd).ok();
             }
@@ -1421,7 +1454,9 @@ fn main() {
                 single: false,
             };
             std::io::set_output_capture(Some(Default::default()));
-            run(args);
+            ARGS.lock().unwrap().pop();
+            ARGS.lock().unwrap().push(args);
+            run();
             let captured = std::io::set_output_capture(None).unwrap();
             let captured = Arc::try_unwrap(captured).unwrap();
             let captured = captured.into_inner().unwrap();
@@ -1455,7 +1490,9 @@ fn main() {
         let oid = git2::Oid::from_str(rev1).unwrap();
         checkout(oid);
         std::io::set_output_capture(Some(Default::default()));
-        run(args);
+        ARGS.lock().unwrap().pop();
+        ARGS.lock().unwrap().push(args);
+        run();
         let captured = std::io::set_output_capture(None).unwrap();
         let captured = Arc::try_unwrap(captured).unwrap();
         let captured = captured.into_inner().unwrap();
@@ -1646,50 +1683,35 @@ fn main() {
     #[test]
     #[serial]
     fn hunks() {
+        let args = Args {
+            flags: vec![],
+            patch: Some("".to_string()),
+            confirm: true,
+            pair: false,
+            function: false,
+            single: false,
+        };
+        ARGS.lock().unwrap().pop();
+        ARGS.lock().unwrap().push(args);
         insta::assert_snapshot!(diff_setup("patch", "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", "512236bac29f09ca798c93020ce377c30a4ed2a5"), 
         @r###"
-        [src/main.rs:618] &map = {
-            "src/main.rs": [
-                Hunk {
-                    patch_text: "",
-                    old_text: "",
-                    old_start_line: 0,
-                    old_end_line: 0,
-                    new_text: "",
-                    new_start_line: 0,
-                    new_end_line: 0,
-                },
-            ],
-            "src/main.rs.1": [
-                Hunk {
-                    patch_text: "H@@ -13,0 +14 @@ struct Ran {\n+    note: String,\n",
-                    old_text: "",
-                    old_start_line: 13,
-                    old_end_line: 13,
-                    new_text: "    note: String,\n",
-                    new_start_line: 14,
-                    new_end_line: 15,
-                },
-                Hunk {
-                    patch_text: "H@@ -29 +30,5 @@ fn markup(source: &[u8], map: Vec<Ran>) -> Vec<u8> {\n-                output.extend(format!(\"</{}>\", m.name).as_bytes());\n+                match m.note.as_str() {\n+                    \"None\" => { output.extend(format!(\"</{}>\", m.name).as_bytes()) },\n+                    _ => { output.extend(format!(\"</{}>[[{}]]\", m.name, m.note).as_bytes()) },\n+                }\n+                \n",
-                    old_text: "                output.extend(format!(\"</{}>\", m.name).as_bytes());\n",
-                    old_start_line: 29,
-                    old_end_line: 30,
-                    new_text: "                match m.note.as_str() {\n                    \"None\" => { output.extend(format!(\"</{}>\", m.name).as_bytes()) },\n                    _ => { output.extend(format!(\"</{}>[[{}]]\", m.name, m.note).as_bytes()) },\n                }\n                \n",
-                    new_start_line: 30,
-                    new_end_line: 35,
-                },
-                Hunk {
-                    patch_text: "H@@ -58,0 +64 @@ fn main() {\n+                        note: format!(\"{:?}\", s.suggested_replacement),\n",
-                    old_text: "",
-                    old_start_line: 58,
-                    old_end_line: 58,
-                    new_text: "                        note: format!(\"{:?}\", s.suggested_replacement),\n",
-                    new_start_line: 64,
-                    new_end_line: 65,
-                },
-            ],
-        }
+        src/main.rs.1
+        H@@ -13,0 +14 @@ struct Ran {
+        +    note: String,
+
+        H@@ -29 +30,5 @@ fn markup(source: &[u8], map: Vec<Ran>) -> Vec<u8> {
+        -                output.extend(format!("</{}>", m.name).as_bytes());
+        +                match m.note.as_str() {
+        +                    "None" => { output.extend(format!("</{}>", m.name).as_bytes()) },
+        +                    _ => { output.extend(format!("</{}>[[{}]]", m.name, m.note).as_bytes()) },
+        +                }
+        +                
+
+        H@@ -58,0 +64 @@ fn main() {
+        +                        note: format!("{:?}", s.suggested_replacement),
+
+        src/main.rs
+
         "###);
 
     }
