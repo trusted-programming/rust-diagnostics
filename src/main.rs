@@ -310,7 +310,7 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
         "--".to_string(),
     ];
     for flag in flags {
-        args.push(format!("-Wclippy::{}", flag));
+        args.push(format!("-Wclippy::{flag}"));
     }
     let mut map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
     to_diagnostic(&mut map, args);
@@ -540,11 +540,7 @@ fn print_warning_count(all_warnings: BTreeMap<String, Vec<Warning>>) {
 fn get_current_id() -> Option<git2::Oid> {
     if let Ok(repo) = git2::Repository::open(".") {
         if let Ok(x) = repo.head() {
-            if let Some(y) = x.target() {
-                Some(y)
-            } else {
-                None
-            }
+            x.target()
         } else {
             None
         }
@@ -615,7 +611,7 @@ impl std::fmt::Display for Hunk {
 #[cfg(feature = "patch")]
 fn print_hunks(map: BTreeMap<String, Vec<Hunk>>) 
 {
-    map.iter().for_each(|(k, v)| {
+    map.iter().for_each(|(_, v)| {
         v.iter().for_each(|h| {
             print!("{h}");
         });
@@ -708,8 +704,8 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
         true
     })
     .ok();
-    hunks.push(cur_hunk.clone());
-    map.insert(filename.clone(), hunks.clone());
+    hunks.push(cur_hunk);
+    map.insert(filename, hunks.clone());
     map
 }
 
@@ -722,8 +718,8 @@ fn add_warnings_to_hunks(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTre
           if k1 == k2 {
             v1.iter_mut().for_each(|h| {
                 v2.iter().for_each(|w| {
-                    if usize::try_from(h.old_start_line).unwrap() <= w.end_line
-                       && usize::try_from(h.old_end_line).unwrap() >= w.start_line
+                    if h.old_start_line <= w.end_line
+                       && h.old_end_line >= w.start_line
                     {
                         h.n_warnings += 1;
                         h.warnings = format!("{}{}", h.warnings, w.name);
@@ -745,7 +741,7 @@ fn get_all_new_warnings() -> BTreeMap<String, Vec<Warning>>
         let flags = get_flags();
         if let Some(id) = &args.patch {
             let old_id = get_current_id().unwrap();
-            let oid = git2::Oid::from_str(&id).unwrap();
+            let oid = git2::Oid::from_str(id).unwrap();
             checkout(oid);
             let all_new_warnings = diagnose_all_warnings(flags);
 
@@ -773,8 +769,8 @@ fn check_fixed(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<Strin
                 warnings.iter().for_each(|(k2, v2)| {
                     if k1 == k2 {
                         v2.iter().for_each(|w| {
-                            if usize::try_from(h.new_start_line).unwrap() <= w.end_line 
-                                && usize::try_from(h.new_end_line).unwrap() >= w.start_line
+                            if h.new_start_line <= w.end_line 
+                                && h.new_end_line >= w.start_line
                             {
                                 fixed = false;
                             }
@@ -791,7 +787,7 @@ fn check_fixed(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<Strin
 }
 
 #[cfg(feature = "patch")]
-fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<String>) {
+fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
     let v = get_args();
     let args = &v[0];
     if let Some(id) = &args.patch {
@@ -816,17 +812,17 @@ fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<Str
                         let m = h.old_end_line - k.start_line;
                         let lines: Vec<&str> = f.split('\n').collect();
                         h.new_context = "".to_string();
-                        for i in 0..n {
+                        (0..n).for_each(|i| {
                             h.new_context.push_str(lines[i]);
-                            h.new_context.push_str("\n");
-                        }
+                            h.new_context.push('\n');
+                        });
                         // h.new_context.push_str("\n");
                         // assume that n .. m is old_text
                         h.new_context.push_str(h.new_text.as_str());
-                        for i in (m-1)..lines.len() {
+                        ((m-1)..lines.len()).for_each(|i| {
                             h.new_context.push_str(lines[i]);
-                            h.new_context.push_str("\n");
-                        }
+                            h.new_context.push('\n');
+                        });
                     }
                 });
             });
@@ -847,7 +843,7 @@ fn run() {
     let all_warnings = diagnose_all_warnings(flags.clone());
     print_warning_count(all_warnings.clone());
     #[cfg(feature = "patch")]
-    handle_patch(all_warnings, flags);
+    handle_patch(all_warnings);
     #[cfg(fix)]
     fix_warnings(flags, &all_warnings);
 }
@@ -1461,7 +1457,7 @@ fn main() {
     // rust-diagnostics --patch $rev2
     // ```
     fn rd_setup<F>(args: Args, rev1: &str, run: F) -> String 
-    where F: Fn(&str) -> (),
+    where F: Fn(&str),
     {
         let dir = std::path::Path::new("rd");
         let git_dir = std::path::Path::new("rd/.git");
