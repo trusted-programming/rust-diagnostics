@@ -570,7 +570,7 @@ fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Hunk {
     patch_text: String, // c.f. git-diff patch
     header: String,    // c.f. header
@@ -596,13 +596,13 @@ impl std::fmt::Display for Hunk {
         if ! args.confirm || self.fixed {
             if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
                 if args.function {
-                    write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                    write!(f, "{}\n{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.header, self.old_context, self.new_context)
                 } else if args.pair {
-                    write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                    write!(f, "{}\n{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.header, self.old_text, self.new_text)
                 } else {
-                    write!(f, "{}{}{}", self.warnings, self.header, self.patch_text)
+                    write!(f, "{}\n{}{}", self.warnings, self.header, self.patch_text)
                 }
             } else { // no warning or more than one warnings
                 write!(f, "")
@@ -617,9 +617,8 @@ impl std::fmt::Display for Hunk {
 fn print_hunks(map: BTreeMap<String, Vec<Hunk>>) 
 {
     map.iter().for_each(|(k, v)| {
-        println!("{k}");
         v.iter().for_each(|h| {
-            println!("{h}");
+            print!("{h}");
         });
     });
 }
@@ -645,15 +644,24 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
         n_warnings: 0,
         fixed: false,
     }; 
+    let mut prev_lineno = 0;
+    let mut filename = EMPTY_STRING.to_string();
     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
         let path = delta.old_file().path().unwrap();
-        let filename = path.to_str().unwrap().to_string();
+        filename = path.to_str().unwrap().to_string();
         if let Some(hunk) = hunk {
-            if cur_filename != filename || cur_hunk.old_start_line != hunk.old_start() {
-                // reinitialize
-                let hh = cur_hunk.clone();
-                hunks.push(hh);
-                let mut cur_hunk = Hunk {
+            // reinitialize
+            if prev_lineno != hunk.old_start() {
+                if prev_lineno > 0 {
+                    hunks.push(cur_hunk.clone());
+                }
+                if cur_filename != filename {
+                    map.insert(filename.clone(), hunks.clone());
+                    cur_filename = filename.clone();
+                    hunks = Vec::new();
+                }
+                prev_lineno = hunk.old_start();
+                cur_hunk = Hunk {
                     patch_text: EMPTY_STRING.to_string(),
                     old_text: EMPTY_STRING.to_string(),
                     old_start_line: 0,
@@ -673,41 +681,44 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
                 cur_hunk.old_end_line = hunk.old_start() + hunk.old_lines();
                 cur_hunk.new_start_line = hunk.new_start();
                 cur_hunk.new_end_line = hunk.new_start() + hunk.new_lines();
-                if cur_filename != filename {
-                    map.insert(filename.clone(), hunks.clone());
-                    cur_filename = filename;
-                    hunks = Vec::new();
-                }
             }
             let content = std::str::from_utf8(line.content()).unwrap();
-            cur_hunk
-                .patch_text
-                .push_str(format!("{}{content}", line.origin()).as_str());
             match line.origin() {
                 ' ' => {
+                    cur_hunk
+                        .patch_text
+                        .push_str(format!("{}{content}", line.origin()).as_str());
                     cur_hunk.old_text.push_str(content);
                     cur_hunk.new_text.push_str(content);
                 }
                 '+' => {
+                    cur_hunk
+                        .patch_text
+                        .push_str(format!("{}{content}", line.origin()).as_str());
                     cur_hunk.new_text.push_str(content);
                 }
                 '-' => {
+                    cur_hunk
+                        .patch_text
+                        .push_str(format!("{}{content}", line.origin()).as_str());
                     cur_hunk.old_text.push_str(content);
                 }
                 _ => {
-                    // cur_hunk.old_text.push_str(content);
+                    cur_hunk.header.push_str(content);
                 }
             }
         }
         true
     })
     .ok();
+    hunks.push(cur_hunk.clone());
+    map.insert(filename.clone(), hunks.clone());
     map
 }
 
 #[cfg(feature = "patch")]
 // This function associate the warnings to the hunks when they overlap.
-fn add_warnings_to_hunks(mut hunks: BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<String, Vec<Warning>>) 
+fn add_warnings_to_hunks(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<String, Vec<Warning>>) 
 {
    hunks.iter_mut().for_each(|(k1, v1)| {
        warnings.iter().for_each(|(k2, v2)| {
@@ -723,6 +734,62 @@ fn add_warnings_to_hunks(mut hunks: BTreeMap<String, Vec<Hunk>>, warnings: BTree
                });
             });
           }
+       });
+    });
+}
+
+#[cfg(feature = "patch")]
+fn get_all_new_warnings() -> BTreeMap<String, Vec<Warning>>
+{
+    let v = get_args();
+    let args = &v[0];
+    let map = BTreeMap::new();
+    if args.confirm {
+        let flags = get_flags();
+        if let Some(id) = &args.patch {
+            let old_id = get_current_id().unwrap();
+            let oid = git2::Oid::from_str(&id).unwrap();
+            checkout(oid);
+            let all_new_warnings = diagnose_all_warnings(flags);
+
+            checkout(old_id);
+            // print!(">>>>>>{all_new_warnings:?}");
+            all_new_warnings
+        } else {
+            map
+        }
+    } else {
+        map
+    }
+}
+
+#[cfg(feature = "patch")]
+
+// This function associate the warnings to the hunks when they will be fixed in next revision.
+fn check_fixed(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<String, Vec<Warning>>) 
+{
+   let v = get_args();
+   let args = &v[0];
+   hunks.iter_mut().for_each(|(k1, v1)| {
+        v1.iter_mut().for_each(|h| {
+           if h.n_warnings == 1 {
+                let mut fixed = true;
+                warnings.iter().for_each(|(k2, v2)| {
+                    if k1 == k2 {
+                        v2.iter().for_each(|w| {
+                            if usize::try_from(h.new_start_line).unwrap() <= w.end_line 
+                                && usize::try_from(h.new_end_line).unwrap() >= w.start_line
+                            {
+                                fixed = false;
+                            }
+                        });
+                    }
+                });
+                if fixed {
+                   // print!(">>>>>{h}");
+                   h.fixed = true;
+                }
+           }
        });
     });
 }
@@ -786,11 +853,18 @@ fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<Str
     let v = get_args();
     let args = &v[0];
     if let Some(id) = &args.patch {
+        let repo = git2::Repository::open(".").unwrap();
+        let diff = get_diff(&repo, id.to_string()).unwrap();
+        let mut hunks = get_hunks(diff);
+        add_warnings_to_hunks(&mut hunks, all_warnings);
+        let new_warnings = get_all_new_warnings();
+        check_fixed(&mut hunks, new_warnings);
+        print_hunks(hunks);
+
+        /*
         let mut prev_hunk = 0;
         let mut related_warnings = std::collections::HashSet::new();
-        let repo = git2::Repository::open(".").unwrap();
         let old_id = get_current_id().unwrap();
-        let diff = get_diff(&repo, id.clone()).unwrap();
         // let _hunks = get_hunks(diff);
         diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
             let p = delta.old_file().path().unwrap();
@@ -986,6 +1060,7 @@ fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<Str
                 print_pair(pair.clone(), prefix.clone(), suffix.clone());
             }
         }
+        */
     }
 }
 
@@ -1370,7 +1445,7 @@ fn main() {
                 confirm: debug_confirm,
                 pair: false,
                 function: false,
-                single: false,
+                single: true,
             };
             std::io::set_output_capture(Some(Default::default()));
             my_args(args);
@@ -1413,7 +1488,7 @@ fn main() {
 }
 "#,
         ) {
-            let debug_confirm = true;
+            let debug_confirm = false;
             let args = Args {
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
