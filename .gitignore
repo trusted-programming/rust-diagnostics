@@ -3,3 +3,5 @@ txl*
 *.txl
 abc
 rd
+diagnostics
+src/snapshots
