@@ -595,7 +595,7 @@ impl std::fmt::Display for Hunk {
         if ! args.confirm || self.fixed {
             if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
                 if args.function {
-                    write!(f, "{}\n{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}\n",
+                    write!(f, "{}\n{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.context, self.new_context)
                 } else if args.pair {
                     write!(f, "{}\n{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
@@ -868,18 +868,20 @@ fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<Str
                         && usize::try_from(prev_r).unwrap() <= k.end_line
                     {
                         h.context = f.to_string();
-                        let n = h.old_start_line - k.start_line;
+                        let n = h.old_start_line - k.start_line - 1;
                         let m = h.old_end_line - k.start_line;
                         let lines: Vec<&str> = f.split('\n').collect();
                         h.new_context = "".to_string();
                         for i in 0..n {
                             h.new_context.push_str(lines[i]);
+                            h.new_context.push_str("\n");
                         }
-                        h.new_context.push_str("\n");
+                        // h.new_context.push_str("\n");
                         // assume that n .. m is old_text
                         h.new_context.push_str(h.new_text.as_str());
                         for i in (m-1)..lines.len() {
                             h.new_context.push_str(lines[i]);
+                            h.new_context.push_str("\n");
                         }
                     }
                 });
@@ -1802,6 +1804,7 @@ fn main() {
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
         #[Warning(clippy::len_zero)
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
         -    if output.len() != 0 {
         +    if !output.is_empty() {
         "###);
@@ -1810,12 +1813,59 @@ fn main() {
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
         #[Warning(clippy::len_zero)
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
+            if output.len() != 0 {
+        === 19a3477889393ea2cdd0edcb5e6ab30c ===
+            if !output.is_empty() {
         "###);
         insta::assert_snapshot!(rd_setup(Args { patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true, },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
         #[Warning(clippy::len_zero)
+        fn remove_previously_generated_files() {
+            let command = Command::new("find")
+                .args(&[".", "-name", "*.rs.1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if output.len() != 0 {
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(&["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        === 19a3477889393ea2cdd0edcb5e6ab30c ===
+        fn remove_previously_generated_files() {
+            let command = Command::new("find")
+                .args(&[".", "-name", "*.rs.1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if !output.is_empty() {
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(&["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
         "###);
     }
 
@@ -1826,98 +1876,11 @@ fn main() {
                 flags: vec![], confirm: true, pair: false, function: false, single: true, },
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files.
-        #[Warning(clippy::collapsible_if)
-        -            if m.start <= i && i < m.end {
-        -                if i == m.start {
-        -                    output.extend(format!("<{}>", m.name).as_bytes());
-        -                }
-        +            if m.start <= i && i < m.end && i == m.start {
-        +                output.extend(format!("<{}>", m.name).as_bytes());
-        #[Warning(clippy::unwrap_used)
-        -        let file_name = path
-        -            .parent()
-        -            .unwrap()
-        -            .join(format!("{}.rs.1",path.file_stem().unwrap().to_string_lossy()));
-        +        let file_name = path.parent().unwrap().join(format!(
-        +            "{}.rs.1",
-        +            path.file_stem().unwrap().to_string_lossy()
-        +        ));
-        -            std::fs::create_dir(&file_name.parent().unwrap()).ok();
-        -        }            
-        +            std::fs::create_dir(file_name.parent().unwrap()).ok();
-        +        }
-        #[Warning(clippy::expect_used)
-        -        .expect("failed to aquire programm output").stdout;
-        +        .expect("failed to aquire programm output")
-        +        .stdout;
-        -    String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
-        -        let mut command = Command::new("rm")
-        -        .args(["-f", tmp])
-        -        .stdout(Stdio::piped())
-        -        .spawn()
-        -        .unwrap();
-        -        command.wait().expect("problem with file deletion");
-        -    });
-        +    String::from_utf8(output)
-        +        .expect("programm output was not valid utf-8")
-        +        .split('\n')
-        +        .for_each(|tmp| {
-        +            let mut command = Command::new("rm")
-        +                .args(["-f", tmp])
-        +                .stdout(Stdio::piped())
-        +                .spawn()
-        +                .unwrap();
-        +            command.wait().expect("problem with file deletion");
-        +        });
         "###);
         insta::assert_snapshot!(rd_setup(Args { patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true, },
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files.
-        #[Warning(clippy::collapsible_if)
-        #[Warning(clippy::unwrap_used)
-        fn remove_previously_generated_files() {
-                    std::fs::create_dir(&file_name.parent().unwrap()).ok();
-                }            
-                .spawn()
-                .unwrap();
-            let output = command
-                .wait_with_output()
-                .expect("failed to aquire programm output").stdout;
-            if !output.is_empty() {
-                println!("Removed previously generated warning files")
-            }
-            String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
-                let mut command = Command::new("rm")
-                .args(["-f", tmp])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-                command.wait().expect("problem with file deletion");
-            });
-        }
-        === 19a3477889393ea2cdd0edcb5e6ab30c ===
-        fn remove_previously_generated_files() {
-                    std::fs::create_dir(file_name.parent().unwrap()).ok();
-                }
-                .spawn()
-                .unwrap();
-            let output = command
-                .wait_with_output()
-                .expect("failed to aquire programm output").stdout;
-            if !output.is_empty() {
-                println!("Removed previously generated warning files")
-            }
-            String::from_utf8(output).expect("programm output was not valid utf-8").split('\n').for_each(|tmp| {
-                let mut command = Command::new("rm")
-                .args(["-f", tmp])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-                command.wait().expect("problem with file deletion");
-            });
-        }
-        #[Warning(clippy::expect_used)
         "###);
     }
 
@@ -1932,22 +1895,7 @@ fn main() {
             function: false,
             single: true,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
-        @r###"
-        src/main.rs
-
-        src/main.rs.1
-
-
-
-
-
-
-
-
-
-
-
-        "###);
+        @"");
      }
 
     #[test]
@@ -1961,21 +1909,6 @@ fn main() {
             function: false,
             single: true,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
-        @r###"
-         src/main.rs
-
-         src/main.rs.1
-
-
-
-
-
-
-
-
-
-
-
-         "###);
+        @"");
     }
 }
