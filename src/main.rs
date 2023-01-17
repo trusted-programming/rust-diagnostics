@@ -423,7 +423,8 @@ fn fix_warnings(flags: Vec<String>, map: &HashMap<String, Vec<Warning>>) {
 // ```bash
 // git checkout $commit_id
 // ```
-fn checkout(commit_id: git2::Oid) {
+fn checkout(commit_id: git2::Oid) 
+{
     let repo = git2::Repository::open(".").unwrap();
     let commit = repo.find_commit(commit_id);
     repo.reset(commit.unwrap().as_object(),
@@ -434,7 +435,9 @@ fn checkout(commit_id: git2::Oid) {
                ).ok();
 }
 
-fn get_flags(default: Vec<String>) -> Vec<String> {
+#[cfg(feature = "patch")]
+fn get_flags(default: Vec<String>) -> Vec<String> 
+{
     let mut flags = default;
     if flags.is_empty() {
         flags = vec![
@@ -493,7 +496,9 @@ fn get_flags(default: Vec<String>) -> Vec<String> {
     flags
 }
 
-fn print_warning_count(all_warnings: HashMap<String, Vec<Warning>>) {
+#[cfg(feature = "patch")]
+fn print_warning_count(all_warnings: HashMap<String, Vec<Warning>>) 
+{
     let mut count = 0;
     all_warnings.iter().for_each(|(_k, v)| {
         count += v.len();
@@ -505,7 +510,9 @@ fn print_warning_count(all_warnings: HashMap<String, Vec<Warning>>) {
     );
 }
 
-fn get_current_id() -> Option<git2::Oid> {
+#[cfg(feature = "patch")]
+fn get_current_id() -> Option<git2::Oid> 
+{
     if let Ok(repo) = git2::Repository::open(".") {
         if let Ok(x) = repo.head() {
             if let Some(y) = x.target() {
@@ -540,6 +547,78 @@ fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff>
     }
 }
 
+#[derive(Debug, Clone)]
+struct Hunk {
+    patch_text: String,
+    old_text: String,
+    old_start_line: u32,
+    old_end_line: u32,
+    new_text: String,
+    new_start_line: u32,
+    new_end_line: u32,
+}
+
+#[cfg(feature = "patch")]
+fn get_hunks(diff: git2::Diff) -> HashMap<String, Vec<Hunk>> 
+{
+    let mut map = HashMap::new();
+    let mut hunks: Vec<Hunk> = Vec::new();
+    let mut cur_filename = "".to_string();
+    let mut cur_hunk = Hunk {
+        patch_text: "".to_string(),
+        old_text: "".to_string(),
+        old_start_line: 0,
+        old_end_line: 0,
+        new_text: "".to_string(),
+        new_start_line: 0,
+        new_end_line: 0,
+    };
+    diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
+        let path = delta.old_file().path().unwrap();
+        let filename = path.to_str().unwrap().to_string();
+        if let Some(hunk) = hunk {
+            if cur_filename != filename || cur_hunk.old_start_line != hunk.old_start() {
+                // reinitialize
+                hunks.push(cur_hunk.clone());
+                cur_hunk = Hunk {
+                    patch_text: "".to_string(),
+                    old_text: "".to_string(),
+                    old_start_line: hunk.old_start(),
+                    old_end_line: hunk.old_start() + hunk.old_lines(),
+                    new_text: "".to_string(),
+                    new_start_line: hunk.new_start(),
+                    new_end_line: hunk.new_start() + hunk.new_lines(),
+                };
+                if cur_filename != filename {
+                    map.insert(filename.clone(), hunks.clone());
+                    cur_filename = filename;
+                    hunks = Vec::new();
+                }
+            }
+            let content = std::str::from_utf8(line.content()).unwrap();
+            cur_hunk.patch_text.push_str(format!("{}{content}", line.origin()).as_str());
+            match line.origin() {
+                ' ' => {
+                    cur_hunk.old_text.push_str(content);
+                    cur_hunk.new_text.push_str(content);
+                },
+                '+' => {
+                    cur_hunk.new_text.push_str(content);
+                },
+                '-' => {
+                    cur_hunk.old_text.push_str(content);
+                },
+                _ => {
+                    // cur_hunk.old_text.push_str(content);
+                }
+            }
+        }
+        true
+    }).ok();
+    dbg!(&map);
+    map
+}
+
 #[cfg(feature = "patch")]
 fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool, args_function: bool, args_single: bool,
                 mut all_warnings: HashMap<String, Vec<Warning>>, flags: Vec<String>) 
@@ -550,6 +629,7 @@ fn handle_patch(args_patch: Option<String>, args_confirm: bool, args_pair: bool,
         let repo = git2::Repository::open(".").unwrap();
         let old_id = get_current_id().unwrap();
         let diff = get_diff(&repo, id.clone()).unwrap();
+        // let _hunks = get_hunks(diff);
         diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
             let p = delta.old_file().path().unwrap();
             let mut overlap = false;
@@ -1384,6 +1464,50 @@ fn main() {
         captured
     }
 
+    fn diff_setup(mode: &str, rev1: &str, rev2: &str) -> String {
+        let dir = std::path::Path::new("rd");
+        let git_dir = std::path::Path::new("rd/.git");
+        if ! git_dir.exists() {
+            let fo = git2::FetchOptions::new();
+            let co = git2::build::CheckoutBuilder::new();
+            git2::build::RepoBuilder::new()
+                .fetch_options(fo)
+                .with_checkout(co)
+                .clone(".git", std::path::Path::new("rd")).ok();
+            println!();
+        } 
+        let cd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir).ok();
+        let oid = git2::Oid::from_str(rev1).unwrap();
+        checkout(oid);
+        std::io::set_output_capture(Some(Default::default()));
+        let repo = git2::Repository::open(".").unwrap();
+        let diff = get_diff(&repo, rev2.to_string()); 
+        let hunks = get_hunks(diff.unwrap());
+        let _ = hunks.iter().map(|(k, v)| {
+            match mode {
+                "patch" => {
+                    println!("{k}");
+                    let _ = v.iter().map(|h| {
+                        println!("{}", h.patch_text);
+                        true
+                    });
+                },
+                _ => {
+                    println!("Unknown mode {mode}");
+                }
+            }
+            true
+        });
+        let captured = std::io::set_output_capture(None).unwrap();
+        let captured = Arc::try_unwrap(captured).unwrap();
+        let captured = captured.into_inner().unwrap();
+        let captured = String::from_utf8(captured).unwrap();
+        std::env::set_current_dir(cd).ok();
+        captured
+    }
+
+
     #[test]
     #[serial]
     fn rd1() {
@@ -1519,4 +1643,54 @@ fn main() {
         "###);
     }
 
+    #[test]
+    #[serial]
+    fn hunks() {
+        insta::assert_snapshot!(diff_setup("patch", "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", "512236bac29f09ca798c93020ce377c30a4ed2a5"), 
+        @r###"
+        [src/main.rs:618] &map = {
+            "src/main.rs": [
+                Hunk {
+                    patch_text: "",
+                    old_text: "",
+                    old_start_line: 0,
+                    old_end_line: 0,
+                    new_text: "",
+                    new_start_line: 0,
+                    new_end_line: 0,
+                },
+            ],
+            "src/main.rs.1": [
+                Hunk {
+                    patch_text: "H@@ -13,0 +14 @@ struct Ran {\n+    note: String,\n",
+                    old_text: "",
+                    old_start_line: 13,
+                    old_end_line: 13,
+                    new_text: "    note: String,\n",
+                    new_start_line: 14,
+                    new_end_line: 15,
+                },
+                Hunk {
+                    patch_text: "H@@ -29 +30,5 @@ fn markup(source: &[u8], map: Vec<Ran>) -> Vec<u8> {\n-                output.extend(format!(\"</{}>\", m.name).as_bytes());\n+                match m.note.as_str() {\n+                    \"None\" => { output.extend(format!(\"</{}>\", m.name).as_bytes()) },\n+                    _ => { output.extend(format!(\"</{}>[[{}]]\", m.name, m.note).as_bytes()) },\n+                }\n+                \n",
+                    old_text: "                output.extend(format!(\"</{}>\", m.name).as_bytes());\n",
+                    old_start_line: 29,
+                    old_end_line: 30,
+                    new_text: "                match m.note.as_str() {\n                    \"None\" => { output.extend(format!(\"</{}>\", m.name).as_bytes()) },\n                    _ => { output.extend(format!(\"</{}>[[{}]]\", m.name, m.note).as_bytes()) },\n                }\n                \n",
+                    new_start_line: 30,
+                    new_end_line: 35,
+                },
+                Hunk {
+                    patch_text: "H@@ -58,0 +64 @@ fn main() {\n+                        note: format!(\"{:?}\", s.suggested_replacement),\n",
+                    old_text: "",
+                    old_start_line: 58,
+                    old_end_line: 58,
+                    new_text: "                        note: format!(\"{:?}\", s.suggested_replacement),\n",
+                    new_start_line: 64,
+                    new_end_line: 65,
+                },
+            ],
+        }
+        "###);
+
+    }
 }
