@@ -99,7 +99,7 @@ fn markup(source: &[u8], map: Vec<Warning>) -> Vec<u8> {
                         "/*\n{}{}{}*/",
                         m.name,
                         if m.suggestion == "None" {
-                            "".to_string()
+                            EMPTY_STRING.to_string()
                         } else {
                             format!(
                                 "\nsuggestion: {}",
@@ -107,7 +107,7 @@ fn markup(source: &[u8], map: Vec<Warning>) -> Vec<u8> {
                             )
                         },
                         if m.note == "None" {
-                            "".to_string()
+                            EMPTY_STRING.to_string()
                         } else {
                             format!("\nnote: {}", m.note.replace("\\n", "\n").replace('\"', ""))
                         }
@@ -572,31 +572,46 @@ fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff> {
 
 #[derive(Clone)]
 struct Hunk {
-    patch_text: String,
-    old_text: String,
-    old_start_line: u32,
-    old_end_line: u32,
-    new_text: String,
-    new_start_line: u32,
-    new_end_line: u32,
+    patch_text: String, // c.f. git-diff patch
+    header: String,    // c.f. header
+    old_text: String, // the old version of the patch
+    new_text: String, // the new version of the patch
+    old_start_line: u32, // start line number of the old version
+    old_end_line: u32, // end line number of the old version
+    new_start_line: u32, // start line number of the new version
+    new_end_line: u32, // end line number of the new version
+    _context: String,    // c.f. git-diff -W the enclosing function
+    old_context: String, // the old version with surrounding function
+    new_context: String, // the new version with surrounding function
+    warnings: String, // the related warning(s) in currenet version
+    n_warnings: u32, // the number of related warning(s) in currenet version
+    fixed: bool, // whether the related hunk will be fixed by the new version
 }
+static EMPTY_STRING: Lazy<String> = Lazy::new(|| "".to_string());
 
 impl std::fmt::Display for Hunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let v = get_args();
         let args = &v[0];
-        if args.pair {
-            write!(
-                f,
-                "{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
-                self.old_text, self.new_text
-            )
-        } else {
-            write!(f, "{}", self.patch_text)
+        if ! args.confirm || self.fixed {
+            if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
+                if args.function {
+                    write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                        self.warnings, self.header, self.old_context, self.new_context)
+                } else if args.pair {
+                    write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                        self.warnings, self.header, self.old_text, self.new_text)
+                } else {
+                    write!(f, "{}{}{}", self.warnings, self.header, self.patch_text)
+                }
+            } else { // no warning or more than one warnings
+                write!(f, "")
+            }
+        } else { // not fixed
+            write!(f, "")
         }
     }
 }
-
 
 #[cfg(feature = "patch")]
 fn print_hunks(map: BTreeMap<String, Vec<Hunk>>) 
@@ -613,32 +628,51 @@ fn print_hunks(map: BTreeMap<String, Vec<Hunk>>)
 fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
     let mut map = BTreeMap::new();
     let mut hunks: Vec<Hunk> = Vec::new();
-    let mut cur_filename = "".to_string();
+    let mut cur_filename = EMPTY_STRING.to_string();
     let mut cur_hunk = Hunk {
-        patch_text: "".to_string(),
-        old_text: "".to_string(),
+        patch_text: EMPTY_STRING.to_string(),
+        old_text: EMPTY_STRING.to_string(),
         old_start_line: 0,
         old_end_line: 0,
-        new_text: "".to_string(),
+        new_text: EMPTY_STRING.to_string(),
         new_start_line: 0,
         new_end_line: 0,
-    };
+        header: EMPTY_STRING.to_string(),
+        _context: EMPTY_STRING.to_string(),
+        old_context: EMPTY_STRING.to_string(),
+        new_context: EMPTY_STRING.to_string(),
+        warnings: EMPTY_STRING.to_string(),
+        n_warnings: 0,
+        fixed: false,
+    }; 
     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
         let path = delta.old_file().path().unwrap();
         let filename = path.to_str().unwrap().to_string();
         if let Some(hunk) = hunk {
             if cur_filename != filename || cur_hunk.old_start_line != hunk.old_start() {
                 // reinitialize
-                hunks.push(cur_hunk.clone());
-                cur_hunk = Hunk {
-                    patch_text: "".to_string(),
-                    old_text: "".to_string(),
-                    old_start_line: hunk.old_start(),
-                    old_end_line: hunk.old_start() + hunk.old_lines(),
-                    new_text: "".to_string(),
-                    new_start_line: hunk.new_start(),
-                    new_end_line: hunk.new_start() + hunk.new_lines(),
-                };
+                let hh = cur_hunk.clone();
+                hunks.push(hh);
+                let mut cur_hunk = Hunk {
+                    patch_text: EMPTY_STRING.to_string(),
+                    old_text: EMPTY_STRING.to_string(),
+                    old_start_line: 0,
+                    old_end_line: 0,
+                    new_text: EMPTY_STRING.to_string(),
+                    new_start_line: 0,
+                    new_end_line: 0,
+                    header: EMPTY_STRING.to_string(),
+                    _context: EMPTY_STRING.to_string(),
+                    old_context: EMPTY_STRING.to_string(),
+                    new_context: EMPTY_STRING.to_string(),
+                    warnings: EMPTY_STRING.to_string(),
+                    n_warnings: 0,
+                    fixed: false,
+                }; 
+                cur_hunk.old_start_line = hunk.old_start();
+                cur_hunk.old_end_line = hunk.old_start() + hunk.old_lines();
+                cur_hunk.new_start_line = hunk.new_start();
+                cur_hunk.new_end_line = hunk.new_start() + hunk.new_lines();
                 if cur_filename != filename {
                     map.insert(filename.clone(), hunks.clone());
                     cur_filename = filename;
@@ -685,7 +719,7 @@ fn reset_hunk(
     let args = &v[0];
     let function_items = get_function_items(p).unwrap();
     if args.pair {
-        let mut prev_f = "".to_string();
+        let mut prev_f = EMPTY_STRING.to_string();
         for k in function_items.keys() {
             let v = function_items.get(k).unwrap();
             prev_f = v.clone();
@@ -699,8 +733,8 @@ fn reset_hunk(
         }
         let lines: Vec<&str> = prev_f.split('\n').collect();
         let lines_deleted: Vec<&str> = pair[0].split('\n').collect();
-        *prefix = "".to_string();
-        *suffix = "".to_string();
+        *prefix = EMPTY_STRING.to_string();
+        *suffix = EMPTY_STRING.to_string();
         let ll = i32::try_from(lines_deleted.len()).unwrap();
         let n = usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_l).unwrap();
         let m =
@@ -718,7 +752,7 @@ fn reset_hunk(
             print_pair(pair.clone(), prefix.clone(), suffix.clone());
         }
     }
-    *pair = vec!["".to_string(), "".to_string()];
+    *pair = vec![EMPTY_STRING.to_string(), EMPTY_STRING.to_string()];
     if !args.single || related_warnings.len() == 1 {
         related_warnings.iter().for_each(|m| {
             println!("{}", m.name);
@@ -809,10 +843,10 @@ fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<Str
             checkout(old_id);
             prev_hunk = 0;
             related_warnings = std::collections::HashSet::new();
-            let mut pair = vec!["".to_string(), "".to_string()];
+            let mut pair = vec![EMPTY_STRING.to_string(), EMPTY_STRING.to_string()];
             let prev_l: i32 = 0;
-            let mut prefix = "".to_string();
-            let mut suffix = "".to_string();
+            let mut prefix = EMPTY_STRING.to_string();
+            let mut suffix = EMPTY_STRING.to_string();
             diff.print(git2::DiffFormat::Patch, |delta, hunk, line| -> bool {
                 let p = delta.old_file().path().unwrap();
                 let mut overlap = false;
@@ -1598,7 +1632,7 @@ fn main() {
         checkout(oid);
         std::io::set_output_capture(Some(Default::default()));
         my_args(args.clone());
-        let rev2 = args.patch.unwrap();
+        let rev2 = args.patch.clone().unwrap();
         run(rev2.as_str());
         let captured = std::io::set_output_capture(None).unwrap();
         let captured = Arc::try_unwrap(captured).unwrap();
@@ -1781,19 +1815,16 @@ fn main() {
         src/main.rs
 
         src/main.rs.1
-        H@@ -13,0 +14 @@ struct Ran {
-        +    note: String,
 
-        H@@ -29 +30,5 @@ fn markup(source: &[u8], map: Vec<Ran>) -> Vec<u8> {
-        -                output.extend(format!("</{}>", m.name).as_bytes());
-        +                match m.note.as_str() {
-        +                    "None" => { output.extend(format!("</{}>", m.name).as_bytes()) },
-        +                    _ => { output.extend(format!("</{}>[[{}]]", m.name, m.note).as_bytes()) },
-        +                }
-        +                
 
-        H@@ -58,0 +64 @@ fn main() {
-        +                        note: format!("{:?}", s.suggested_replacement),
+
+
+
+
+
+
+
+
 
         "###);
      }
@@ -1811,22 +1842,18 @@ fn main() {
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @r###"
          src/main.rs
-         === 19a3477889393ea2cdd0edcb5e6ab30c ===
 
          src/main.rs.1
-         === 19a3477889393ea2cdd0edcb5e6ab30c ===
-             note: String,
 
-                         output.extend(format!("</{}>", m.name).as_bytes());
-         === 19a3477889393ea2cdd0edcb5e6ab30c ===
-                         match m.note.as_str() {
-                             "None" => { output.extend(format!("</{}>", m.name).as_bytes()) },
-                             _ => { output.extend(format!("</{}>[[{}]]", m.name, m.note).as_bytes()) },
-                         }
-                         
 
-         === 19a3477889393ea2cdd0edcb5e6ab30c ===
-                                 note: format!("{:?}", s.suggested_replacement),
+
+
+
+
+
+
+
+
 
          "###);
     }
