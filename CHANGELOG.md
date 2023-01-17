@@ -1,5 +1,6 @@
 ## Change Log
-- [ ] Add an option `--single` to select only those diff records that patch exactly one warning
+- [x] Refactor the code to simplify the logic by introduce a Hunk structure as unified state of various analyses
+- [x] Add an option `--single` to select only those diff records that patch exactly one warning
 - [x] Test rust-diagnostics on its own history
 - [x] Add an option `-W` to generate diff records with the surrounding function contexts (which was a feature of `git diff` but not supported by `libgit2`
 - [x] Add an option `--pair` to generate diff records into code pairs
