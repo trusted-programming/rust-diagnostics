@@ -706,6 +706,28 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
 }
 
 #[cfg(feature = "patch")]
+// This function associate the warnings to the hunks when they overlap.
+fn add_warnings_to_hunks(mut hunks: BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<String, Vec<Warning>>) 
+{
+   hunks.iter_mut().for_each(|(k1, v1)| {
+       warnings.iter().for_each(|(k2, v2)| {
+          if k1 == k2 {
+            v1.iter_mut().for_each(|h| {
+                v2.iter().for_each(|w| {
+                    if usize::try_from(h.old_start_line).unwrap() <= w.end_line
+                       && usize::try_from(h.old_end_line).unwrap() >= w.start_line
+                    {
+                        h.n_warnings += 1;
+                        h.warnings = format!("{}{}", h.warnings, w.name);
+                    }
+               });
+            });
+          }
+       });
+    });
+}
+
+#[cfg(feature = "patch")]
 fn reset_hunk(
     h: &git2::DiffHunk,
     p: &std::path::Path,
@@ -713,8 +735,8 @@ fn reset_hunk(
     prefix: &mut String,
     suffix: &mut String,
     pair: &mut Vec<String>,
-    related_warnings: &mut std::collections::HashSet<Warning>,
-) {
+    related_warnings: &mut std::collections::HashSet<Warning>) 
+{
     let v = get_args();
     let args = &v[0];
     let function_items = get_function_items(p).unwrap();
@@ -737,9 +759,7 @@ fn reset_hunk(
         *suffix = EMPTY_STRING.to_string();
         let ll = i32::try_from(lines_deleted.len()).unwrap();
         let n = usize::try_from(i32::try_from(h.old_start()).unwrap() - prev_l).unwrap();
-        let m =
-            usize::try_from(i32::try_from(h.old_start() + h.old_lines()).unwrap() - prev_l + ll)
-                .unwrap();
+        let m = usize::try_from(i32::try_from(h.old_start() + h.old_lines()).unwrap() - prev_l + ll).unwrap();
         for i in 0..n {
             *prefix = format!("{}{}\n", *prefix, lines[i]);
         }
