@@ -576,12 +576,11 @@ struct Hunk {
     header: String,    // c.f. header
     old_text: String, // the old version of the patch
     new_text: String, // the new version of the patch
-    old_start_line: u32, // start line number of the old version
-    old_end_line: u32, // end line number of the old version
-    new_start_line: u32, // start line number of the new version
-    new_end_line: u32, // end line number of the new version
-    _context: String,    // c.f. git-diff -W the enclosing function
-    old_context: String, // the old version with surrounding function
+    old_start_line: usize, // start line number of the old version
+    old_end_line: usize, // end line number of the old version
+    new_start_line: usize, // start line number of the new version
+    new_end_line: usize, // end line number of the new version
+    context: String,    // c.f. git-diff -W the enclosing function
     new_context: String, // the new version with surrounding function
     warnings: String, // the related warning(s) in currenet version
     n_warnings: u32, // the number of related warning(s) in currenet version
@@ -596,8 +595,8 @@ impl std::fmt::Display for Hunk {
         if ! args.confirm || self.fixed {
             if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
                 if args.function {
-                    write!(f, "{}\n{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
-                        self.warnings, self.header, self.old_context, self.new_context)
+                    write!(f, "{}\n{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}\n",
+                        self.warnings, self.context, self.new_context)
                 } else if args.pair {
                     write!(f, "{}\n{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.header, self.old_text, self.new_text)
@@ -637,8 +636,7 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
         new_start_line: 0,
         new_end_line: 0,
         header: EMPTY_STRING.to_string(),
-        _context: EMPTY_STRING.to_string(),
-        old_context: EMPTY_STRING.to_string(),
+        context: EMPTY_STRING.to_string(),
         new_context: EMPTY_STRING.to_string(),
         warnings: EMPTY_STRING.to_string(),
         n_warnings: 0,
@@ -670,17 +668,16 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
                     new_start_line: 0,
                     new_end_line: 0,
                     header: EMPTY_STRING.to_string(),
-                    _context: EMPTY_STRING.to_string(),
-                    old_context: EMPTY_STRING.to_string(),
+                    context: EMPTY_STRING.to_string(),
                     new_context: EMPTY_STRING.to_string(),
                     warnings: EMPTY_STRING.to_string(),
                     n_warnings: 0,
                     fixed: false,
                 }; 
-                cur_hunk.old_start_line = hunk.old_start();
-                cur_hunk.old_end_line = hunk.old_start() + hunk.old_lines();
-                cur_hunk.new_start_line = hunk.new_start();
-                cur_hunk.new_end_line = hunk.new_start() + hunk.new_lines();
+                cur_hunk.old_start_line = usize::try_from(hunk.old_start()).unwrap();
+                cur_hunk.old_end_line = usize::try_from(hunk.old_start() + hunk.old_lines()).unwrap();
+                cur_hunk.new_start_line = usize::try_from(hunk.new_start()).unwrap();
+                cur_hunk.new_end_line = usize::try_from(hunk.new_start() + hunk.new_lines()).unwrap();
             }
             let content = std::str::from_utf8(line.content()).unwrap();
             match line.origin() {
@@ -764,8 +761,7 @@ fn get_all_new_warnings() -> BTreeMap<String, Vec<Warning>>
 }
 
 #[cfg(feature = "patch")]
-
-// This function associate the warnings to the hunks when they will be fixed in next revision.
+// This function associates the warnings to the hunks when they will be fixed in next revision.
 fn check_fixed(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<String, Vec<Warning>>) 
 {
    let v = get_args();
@@ -794,6 +790,7 @@ fn check_fixed(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<Strin
     });
 }
 
+/*
 #[cfg(feature = "patch")]
 fn reset_hunk(
     h: &git2::DiffHunk,
@@ -847,6 +844,7 @@ fn reset_hunk(
     }
     *related_warnings = std::collections::HashSet::new();
 }
+*/
 
 #[cfg(feature = "patch")]
 fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<String>) {
@@ -859,6 +857,34 @@ fn handle_patch(mut all_warnings: BTreeMap<String, Vec<Warning>>, flags: Vec<Str
         add_warnings_to_hunks(&mut hunks, all_warnings);
         let new_warnings = get_all_new_warnings();
         check_fixed(&mut hunks, new_warnings);
+        hunks.iter_mut().for_each(|(k,v)| {
+            let p = std::path::Path::new(k);
+            let function_items = get_function_items(p).unwrap();
+            v.iter_mut().for_each(|h| {
+                function_items.iter().for_each(|(k, f)| {
+                    let prev_l = i32::try_from(h.old_start_line - 1).unwrap();
+                    let prev_r = i32::try_from(h.old_end_line - 1).unwrap();
+                    if k.start_line <= usize::try_from(prev_l).unwrap()
+                        && usize::try_from(prev_r).unwrap() <= k.end_line
+                    {
+                        h.context = f.to_string();
+                        let n = h.old_start_line - k.start_line;
+                        let m = h.old_end_line - k.start_line;
+                        let lines: Vec<&str> = f.split('\n').collect();
+                        h.new_context = "".to_string();
+                        for i in 0..n {
+                            h.new_context.push_str(lines[i]);
+                        }
+                        h.new_context.push_str("\n");
+                        // assume that n .. m is old_text
+                        h.new_context.push_str(h.new_text.as_str());
+                        for i in (m-1)..lines.len() {
+                            h.new_context.push_str(lines[i]);
+                        }
+                    }
+                });
+            });
+        });
         print_hunks(hunks);
 
         /*
@@ -1277,7 +1303,7 @@ mod tests {
             confirm: false,
             pair: false,
             function: false,
-            single: false,
+            single: true,
         };
         let dir = std::path::Path::new("abc");
         if dir.exists() {
@@ -1495,7 +1521,7 @@ fn main() {
                 confirm: debug_confirm,
                 pair: true,
                 function: false,
-                single: false,
+                single: true,
             };
             std::io::set_output_capture(Some(Default::default()));
             my_args(args);
@@ -1531,7 +1557,7 @@ fn main() {
                 confirm: debug_confirm,
                 pair: true,
                 function: true,
-                single: false,
+                single: true,
             };
             std::io::set_output_capture(Some(Default::default()));
             my_args(args);
@@ -1647,7 +1673,7 @@ fn main() {
                     confirm: false,
                     pair: false,
                     function: false,
-                    single: false,
+                    single: true,
                 };
                 my_args(args);
                 run();
@@ -1682,7 +1708,7 @@ fn main() {
                 confirm: true,
                 pair: false,
                 function: false,
-                single: false,
+                single: true,
             };
             std::io::set_output_capture(Some(Default::default()));
             my_args(args);
@@ -1904,7 +1930,7 @@ fn main() {
             confirm: true,
             pair: false,
             function: false,
-            single: false,
+            single: true,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @r###"
         src/main.rs
@@ -1933,7 +1959,7 @@ fn main() {
             confirm: true,
             pair: true,
             function: false,
-            single: false,
+            single: true,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @r###"
          src/main.rs
