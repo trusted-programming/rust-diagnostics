@@ -749,10 +749,16 @@ fn remove_previously_generated_files(folder: &str, pattern: &str) {
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    fn get_temp_dir() -> String 
+    {
+        format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_")
+    }
+
     #[test]
     #[serial]
     fn diagnostics() {
-        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
+        let temp_dir = get_temp_dir();
         let args = Args {
             folder: Some(temp_dir.clone()),
             flags: vec![],
@@ -901,19 +907,19 @@ requested on the command line with `-W clippy::unwrap-used`*/;
     // cd -
     // ```
     fn fixed() {
-        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
-            let debug_confirm = true;
-            let args = Args {
-                folder: Some(temp_dir.clone()),
-                flags: vec![],
-                patch: None,
-                confirm: debug_confirm,
-                pair: false,
-                function: false,
-                single: true,
-            };
-            my_args(args);
-            if let Ok(update_commit) = setup(temp_dir.clone(),
+        let temp_dir = get_temp_dir();
+        let debug_confirm = true;
+        let args = Args {
+            folder: Some(temp_dir.clone()),
+            flags: vec![],
+            patch: None,
+            confirm: debug_confirm,
+            pair: false,
+            function: false,
+            single: true,
+        };
+        my_args(args);
+        if let Ok(update_commit) = setup(temp_dir.clone(),
             r#"
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -963,17 +969,17 @@ fn main() {
     #[test]
     #[serial]
     fn pair() {
-        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
-            let args = Args {
-                folder: Some(temp_dir.clone()),
-                flags: vec![],
-                patch: None,
-                confirm: false,
-                pair: true,
-                function: false,
-                single: true,
-            };
-            my_args(args);
+        let temp_dir = get_temp_dir();
+        let args = Args {
+            folder: Some(temp_dir.clone()),
+            flags: vec![],
+            patch: None,
+            confirm: false,
+            pair: true,
+            function: false,
+            single: true,
+        };
+        my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
             r#"
 fn main() {
@@ -1024,7 +1030,7 @@ fn main() {
     }
 
     fn function_setup(code1: &str, code2: &str, code3: &str) {
-        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
+        let temp_dir = get_temp_dir();
         let args = Args {
             folder: Some(temp_dir.clone()),
             flags: vec![],
@@ -1140,18 +1146,18 @@ fn main() {
     #[test]
     #[serial]
     fn unfixed() {
-        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
-            let args = Args {
-                folder: Some(temp_dir.clone()),
-                flags: vec![],
-                patch: None,
-                confirm: true,
-                pair: false,
-                function: false,
-                single: true,
-            };
-            my_args(args);
-         if let Ok(update_commit) = setup(temp_dir.clone(),
+        let temp_dir = get_temp_dir();
+        let args = Args {
+            folder: Some(temp_dir.clone()),
+            flags: vec![],
+            patch: None,
+            confirm: true,
+            pair: false,
+            function: false,
+            single: true,
+        };
+        my_args(args);
+        if let Ok(update_commit) = setup(temp_dir.clone(),
             r#"
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -1199,15 +1205,16 @@ fn main() {
     fn rd_setup<F>(args: Args, rev1: &str, run: F) -> String 
     where F: Fn(&str),
     {
+        let temp_dir = get_temp_dir();
         my_args(args.clone());
-        let git_dir = std::path::Path::new("rd/.git");
+        let git_dir = std::path::Path::new("{temp_dir}/.git");
         if !git_dir.exists() {
             let fo = git2::FetchOptions::new();
             let co = git2::build::CheckoutBuilder::new();
             git2::build::RepoBuilder::new()
                 .fetch_options(fo)
                 .with_checkout(co)
-                .clone(".git", std::path::Path::new("rd"))
+                .clone(".git", std::path::Path::new(temp_dir.as_str()))
                 .ok();
             println!();
         }
