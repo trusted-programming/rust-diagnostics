@@ -34,6 +34,9 @@ use structopt::StructOpt;
 
 #[derive(StructOpt, Debug, Clone)]
 struct Args {
+    #[structopt(name = "folder", long)]
+    /// the folder of the repository, default to "."
+    folder: Option<String>,
     #[structopt(name = "flags", long)]
     /// warnings concerning the warning flags
     flags: Vec<String>,
@@ -302,10 +305,24 @@ fn rustflags() -> Vec<String> {
     target_info.rustflags.clone()
 }
 
+fn get_folder() -> String {
+    let mut folder = ".".to_string();
+    let v = get_args();
+    let args = &v[0];
+    if let Some(f) = args.folder.clone() {
+        folder = f;
+    }
+    folder
+ }
+
 // markup all warnings into diagnostics
 fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
+    let folder = get_folder();
+    let manifest = format!("{folder}/Cargo.toml");
     let mut args = vec![
         "clippy".to_string(),
+        "--manifest-path".to_string(), 
+        manifest,
         "--message-format=json".to_string(),
         "--".to_string(),
     ];
@@ -317,7 +334,7 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
     if !map.is_empty() {
         let mut markup_map: BTreeMap<String, String> = BTreeMap::new();
         for file in map.keys() {
-            if let Ok(source) = read_to_string(file) {
+            if let Ok(source) = read_to_string(format!("{folder}/{file}")) {
                 if let Some(v) = map.get(file) {
                     let markedup = &markup(source.as_bytes(), v.to_vec());
                     if let Ok(s) = std::str::from_utf8(markedup) {
@@ -329,7 +346,7 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
         for file in map.keys() {
             if markup_map.contains_key(file) {
                 let markedup = &markup_map[file];
-                let file_name = PathBuf::from("diagnostics").join(file);
+                let file_name = PathBuf::from(&folder).join("diagnostics").join(file);
                 // println!("Marked warning(s) into {:?}", &file_name);
                 if let Some(p) = file_name.parent() {
                     if !p.exists() {
@@ -389,7 +406,9 @@ fn fix_warnings(flags: Vec<String>, map: &BTreeMap<String, Vec<Warning>>) {
             let mut args = vec![
                 "clippy".to_string(),
                 "--message-format=json".to_string(),
-                "--fix".to_string(),
+                "--manifest-path".to_string(), 
+                manifest,
+                 "--fix".to_string(),
                 "--allow-dirty".to_string(),
                 "--allow-no-vcs".to_string(),
                 "--broken-code".to_string(),
@@ -832,7 +851,8 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
 }
 
 fn run() {
-    remove_previously_generated_files("./diagnostics", "*.rs"); // marked up
+    let folder = get_folder();
+    remove_previously_generated_files(format!("{folder}/diagnostics").as_str(), "*.rs"); // marked up
     #[cfg(fix)]
     {
         remove_previously_generated_files("./original", "*.rs"); // before fix
@@ -1027,6 +1047,7 @@ mod tests {
     #[serial]
     fn diagnostics() {
         let args = Args {
+            folder: Some("abc".to_string()),
             flags: vec![],
             patch: None,
             confirm: false,
@@ -1050,15 +1071,11 @@ fn main() {
 }
 "#;
                 let _ = std::fs::write("abc/src/main.rs", code);
-                let cd = std::env::current_dir().unwrap();
-                std::env::set_current_dir(dir).ok();
                 my_args(args);
                 run();
-                assert!(std::path::Path::new("diagnostics/src/main.rs").exists());
-                if let Ok(s) = std::fs::read_to_string("diagnostics/src/main.rs") {
-                    assert_eq!(
-                        s,
-                        r###"
+                assert!(std::path::Path::new("abc/diagnostics/src/main.rs").exists());
+                if let Ok(s) = std::fs::read_to_string("abc/diagnostics/src/main.rs") { 
+                    assert_eq!(s, r###"
 fn main() {
     let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
 #[Warning(clippy::unwrap_used)
@@ -1067,10 +1084,7 @@ for further information visit https://rust-lang.github.io/rust-clippy/master/ind
 requested on the command line with `-W clippy::unwrap-used`*/;
     println!("{s}");
 }
-"###
-                    );
-                }
-                std::env::set_current_dir(cd).ok();
+"###); }
             }
         }
     }
@@ -1091,11 +1105,13 @@ requested on the command line with `-W clippy::unwrap-used`*/;
         filename: &str,
         code: &str,
     ) -> core::result::Result<git2::Oid, git2::Error> {
-        std::fs::write(filename, code).ok();
+        let folder = get_folder();
+        let filename = format!("{folder}/{filename}");
+        std::fs::write(filename.clone(), code).ok();
         let repo = git2::Repository::open(std::path::Path::new(".")).unwrap();
         let author = git2::Signature::now("Yijun Yu", "y.yu@open.ac.uk").unwrap();
         let mut index = repo.index().unwrap();
-        index.add_path(std::path::Path::new(filename)).ok();
+        index.add_path(std::path::Path::new(&filename)).ok();
         let index_oid = index.write_tree_to(&repo).unwrap();
         let tree = repo.find_tree(index_oid).unwrap();
         let h = repo.head();
@@ -1123,7 +1139,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
     fn setup(
         code: &str,
         fix: &str,
-    ) -> anyhow::Result<(std::path::PathBuf, git2::Oid), std::io::Error> {
+    ) -> anyhow::Result<git2::Oid, std::io::Error> {
         let dir = std::path::Path::new("abc");
         if dir.exists() {
             let _ = std::fs::remove_dir_all(dir);
@@ -1133,12 +1149,10 @@ requested on the command line with `-W clippy::unwrap-used`*/;
             .spawn()
         {
             if let Ok(_output) = command.wait_with_output() {
-                let cd = std::env::current_dir().unwrap();
-                std::env::set_current_dir(dir).ok();
                 let init_commit = commit_file("init", "src/main.rs", code).ok().unwrap();
                 let update_commit = commit_file("update", "src/main.rs", fix).ok().unwrap();
                 checkout(init_commit);
-                Ok((cd, update_commit))
+                Ok(update_commit)
             } else {
                 Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -1153,9 +1167,8 @@ requested on the command line with `-W clippy::unwrap-used`*/;
         }
     }
 
-    fn teardown(cd: std::path::PathBuf, update_commit: git2::Oid) {
+    fn teardown(update_commit: git2::Oid) {
         checkout(update_commit);
-        std::env::set_current_dir(cd).ok();
     }
 
     use std::sync::Arc;
@@ -1178,7 +1191,18 @@ requested on the command line with `-W clippy::unwrap-used`*/;
     // cd -
     // ```
     fn fixed() {
-        if let Ok((cd, update_commit)) = setup(
+            let debug_confirm = true;
+            let args = Args {
+                folder: Some("abc".to_string()),
+                flags: vec![],
+                patch: None,
+                confirm: debug_confirm,
+                pair: false,
+                function: false,
+                single: true,
+            };
+            my_args(args);
+            if let Ok(update_commit) = setup(
             r#"
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -1193,16 +1217,16 @@ fn main() {
 }
 "#,
         ) {
-            let debug_confirm = true;
+            std::io::set_output_capture(Some(Default::default()));
             let args = Args {
+                folder: Some("abc".to_string()),
                 flags: vec![],
-                patch: Some(format!("{update_commit}")),
+                patch: Some(update_commit.to_string()),
                 confirm: debug_confirm,
                 pair: false,
                 function: false,
                 single: true,
             };
-            std::io::set_output_capture(Some(Default::default()));
             my_args(args);
             run();
             let captured = std::io::set_output_capture(None).unwrap();
@@ -1221,14 +1245,14 @@ fn main() {
 +    }
 "###
             );
-            teardown(cd, update_commit);
+            teardown(update_commit);
         }
     }
 
     #[test]
     #[serial]
     fn pair() {
-        if let Ok((cd, update_commit)) = setup(
+        if let Ok(update_commit) = setup(
             r#"
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -1245,6 +1269,7 @@ fn main() {
         ) {
             let debug_confirm = false;
             let args = Args {
+                folder: Some("abc".to_string()),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: debug_confirm,
@@ -1272,15 +1297,16 @@ fn main() {
     }
 "###
             );
-            teardown(cd, update_commit);
+            teardown(update_commit);
         }
     }
 
     fn function_setup(code1: &str, code2: &str, code3: &str) {
-        if let Ok((cd, update_commit)) = setup(code1, code2) {
+        if let Ok(update_commit) = setup(code1, code2) {
             let debug_confirm = true;
             dbg!(&update_commit);
             let args = Args {
+                folder: Some("abc".to_string()),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: debug_confirm,
@@ -1296,7 +1322,7 @@ fn main() {
             let captured = captured.into_inner().unwrap();
             let captured = String::from_utf8(captured).unwrap();
             assert_eq!(captured, code3);
-            teardown(cd, update_commit);
+            teardown(update_commit);
         }
     }
 
@@ -1380,44 +1406,8 @@ fn main() {
 
     #[test]
     #[serial]
-    fn main() {
-        let dir = std::path::Path::new("abc");
-        if dir.exists() {
-            let _ = std::fs::remove_dir_all(dir);
-        }
-        if let Ok(command) = Command::new("cargo").args(["init", "--bin", "abc"]).spawn() {
-            if let Ok(_output) = command.wait_with_output() {
-                let code = r#"
-fn main() {
-    let s = std::fs::read_to_string("Cargo.toml").unwrap();
-    println!("{s}");
-}
-"#;
-                let cd = std::env::current_dir().unwrap();
-                std::env::set_current_dir(dir).ok();
-                std::fs::write("src/main.rs", code).ok();
-                let args = Args {
-                    flags: vec![],
-                    patch: None,
-                    confirm: false,
-                    pair: false,
-                    function: false,
-                    single: true,
-                };
-                my_args(args);
-                run();
-                assert!(
-                    !std::path::Path::new("test/transform/Wclippy::unwrap_used/0.2.rs").exists()
-                );
-                std::env::set_current_dir(cd).ok();
-            }
-        }
-    }
-
-    #[test]
-    #[serial]
     fn unfixed() {
-        if let Ok((cd, update_commit)) = setup(
+        if let Ok(update_commit) = setup(
             r#"
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -1432,6 +1422,7 @@ fn main() {
 "#,
         ) {
             let args = Args {
+                folder: Some("abc".to_string()),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
@@ -1451,7 +1442,7 @@ fn main() {
                 r###"There are 1 warnings in 1 files.
 "###
             );
-            teardown(cd, update_commit);
+            teardown(update_commit);
         }
     }
 
@@ -1464,7 +1455,6 @@ fn main() {
     fn rd_setup<F>(args: Args, rev1: &str, run: F) -> String 
     where F: Fn(&str),
     {
-        let dir = std::path::Path::new("rd");
         let git_dir = std::path::Path::new("rd/.git");
         if !git_dir.exists() {
             let fo = git2::FetchOptions::new();
@@ -1476,20 +1466,16 @@ fn main() {
                 .ok();
             println!();
         }
-        let cd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir).ok();
         let oid = git2::Oid::from_str(rev1).unwrap();
         checkout(oid);
         std::io::set_output_capture(Some(Default::default()));
         my_args(args.clone());
-        let rev2 = args.patch.clone().unwrap();
+        let rev2 = args.patch.unwrap();
         run(rev2.as_str());
         let captured = std::io::set_output_capture(None).unwrap();
         let captured = Arc::try_unwrap(captured).unwrap();
         let captured = captured.into_inner().unwrap();
-        let captured = String::from_utf8(captured).unwrap();
-        std::env::set_current_dir(cd).ok();
-        captured
+        String::from_utf8(captured).unwrap()
     }
 
     fn rd_run(_rev2: &str) {
@@ -1508,7 +1494,7 @@ fn main() {
     fn rd1() {
         assert_eq!(
             rd_setup(
-                Args {
+                Args {folder: Some("rd".to_string()),
                     patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
                     flags: vec![],
                     confirm: true,
@@ -1526,7 +1512,8 @@ fn main() {
     #[test]
     #[serial]
     fn rd2() {
-        insta::assert_snapshot!(rd_setup(Args { patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()),
+                patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: false, function: false, single: true, },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
@@ -1535,7 +1522,8 @@ fn main() {
         -    if output.len() != 0 {
         +    if !output.is_empty() {
         "###);
-        insta::assert_snapshot!(rd_setup(Args { patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()),
+                patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: false, single: true, },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
@@ -1545,7 +1533,8 @@ fn main() {
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
             if !output.is_empty() {
         "###);
-        insta::assert_snapshot!(rd_setup(Args { patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()),
+                patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true, },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
@@ -1599,12 +1588,14 @@ fn main() {
     #[test]
     #[serial]
     fn rd3() {
-        insta::assert_snapshot!(rd_setup(Args { patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
+        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()),
+                patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
                 flags: vec![], confirm: false, pair: false, function: false, single: true, },
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files.
         "###);
-        insta::assert_snapshot!(rd_setup(Args { patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
+        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()), 
+                patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true, },
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files.
@@ -1614,7 +1605,7 @@ fn main() {
     #[test]
     #[serial]
     fn hunks_patch() {
-        insta::assert_snapshot!(rd_setup(Args {
+        insta::assert_snapshot!(rd_setup(Args {folder: Some("rd".to_string()),
             flags: vec![],
             patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
             confirm: true,
@@ -1628,7 +1619,7 @@ fn main() {
     #[test]
     #[serial]
     fn hunks_pairs() {
-         insta::assert_snapshot!(rd_setup(Args {
+         insta::assert_snapshot!(rd_setup(Args {folder: Some("rd".to_string()),
             flags: vec![],
             patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
             confirm: true,

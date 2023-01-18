@@ -1,4 +1,5 @@
 ## Change Log
+- [ ] Parallelize the execution by allow clippy to run outside the project folder, so that we don't need to run "cd $project" which affects the system state and blocks parallelization
 - [x] Refactor the code to simplify the logic by introduce a Hunk structure as unified state of various analyses
 - [x] Add an option `--single` to select only those diff records that patch exactly one warning
 - [x] Test rust-diagnostics on its own history
