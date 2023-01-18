@@ -1202,10 +1202,9 @@ fn main() {
     // git checkout $rev1
     // rust-diagnostics --patch $rev2
     // ```
-    fn rd_setup<F>(args: Args, rev1: &str, run: F) -> String 
+    fn rd_setup<F>(temp_dir: String, args: Args, rev1: &str, run: F) -> String 
     where F: Fn(&str),
     {
-        let temp_dir = get_temp_dir();
         my_args(args.clone());
         let git_dir = std::path::Path::new("{temp_dir}/.git");
         if !git_dir.exists() {
@@ -1244,9 +1243,10 @@ fn main() {
     #[test]
     #[serial]
     fn rd1() {
+        let temp_dir = get_temp_dir();
         assert_eq!(
-            rd_setup(
-                Args {folder: Some("rd".to_string()),
+            rd_setup(temp_dir.clone(),
+                Args {folder: Some(temp_dir),
                     patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
                     flags: vec![],
                     confirm: true,
@@ -1264,7 +1264,8 @@ fn main() {
     #[test]
     #[serial]
     fn rd2() {
-        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()),
+        let temp_dir = get_temp_dir();
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: false, function: false, single: true, },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
@@ -1274,7 +1275,7 @@ fn main() {
         -    if output.len() != 0 {
         +    if !output.is_empty() {
         "###);
-        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()),
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: false, single: true, },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
@@ -1285,7 +1286,7 @@ fn main() {
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
             if !output.is_empty() {
         "###);
-        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()),
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true, },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
@@ -1340,13 +1341,14 @@ fn main() {
     #[test]
     #[serial]
     fn rd3() {
-        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()),
+        let temp_dir = get_temp_dir();
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
                 flags: vec![], confirm: false, pair: false, function: false, single: true, },
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files.
         "###);
-        insta::assert_snapshot!(rd_setup(Args { folder: Some("rd".to_string()), 
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()), 
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true, },
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
@@ -1357,7 +1359,8 @@ fn main() {
     #[test]
     #[serial]
     fn hunks_patch() {
-        insta::assert_snapshot!(rd_setup(Args {folder: Some("rd".to_string()),
+        let temp_dir = get_temp_dir();
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args {folder: Some(temp_dir.clone()),
             flags: vec![],
             patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
             confirm: true,
@@ -1371,7 +1374,8 @@ fn main() {
     #[test]
     #[serial]
     fn hunks_pairs() {
-         insta::assert_snapshot!(rd_setup(Args {folder: Some("rd".to_string()),
+        let temp_dir = get_temp_dir();
+         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args {folder: Some(temp_dir.clone()),
             flags: vec![],
             patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
             confirm: true,
