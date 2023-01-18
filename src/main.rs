@@ -752,8 +752,9 @@ mod tests {
     #[test]
     #[serial]
     fn diagnostics() {
+        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
         let args = Args {
-            folder: Some("abc".to_string()),
+            folder: Some(temp_dir.clone()),
             flags: vec![],
             patch: None,
             confirm: false,
@@ -761,12 +762,12 @@ mod tests {
             function: false,
             single: true,
         };
-        let dir = std::path::Path::new("abc");
+        let dir = std::path::Path::new(&temp_dir);
         if dir.exists() {
             let _ = std::fs::remove_dir_all(dir);
         }
         if let Ok(command) = Command::new("cargo")
-            .args(["init", "--bin", "--vcs", "git", "abc"])
+            .args(["init", "--bin", "--vcs", "git", &temp_dir.as_str()])
             .spawn()
         {
             if let Ok(_output) = command.wait_with_output() {
@@ -776,11 +777,14 @@ fn main() {
     println!("{s}");
 }
 "#;
-                let _ = std::fs::write("abc/src/main.rs", code);
+            let filename = format!("{}/src/main.rs", temp_dir.clone());
+                let _ = std::fs::write(filename, code);
                 my_args(args);
                 run();
-                assert!(std::path::Path::new("abc/diagnostics/src/main.rs").exists());
-                if let Ok(s) = std::fs::read_to_string("abc/diagnostics/src/main.rs") { 
+                let filename = format!("{}/diagnostics/src/main.rs", temp_dir);
+                let filename = filename.as_str();
+                assert!(std::path::Path::new(filename).exists());
+                if let Ok(s) = std::fs::read_to_string(filename) { 
                     assert_eq!(s, r###"
 fn main() {
     let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
@@ -841,16 +845,16 @@ requested on the command line with `-W clippy::unwrap-used`*/;
         }
     }
 
-    fn setup(
+    fn setup(temp_dir: String,
         code: &str,
         fix: &str,
     ) -> anyhow::Result<git2::Oid, std::io::Error> {
-        let dir = std::path::Path::new("abc");
+        let dir = std::path::Path::new(temp_dir.as_str());
         if dir.exists() {
             let _ = std::fs::remove_dir_all(dir);
         }
         if let Ok(command) = Command::new("cargo")
-            .args(["init", "--vcs", "git", "--bin", "abc"])
+            .args(["init", "--vcs", "git", "--bin", temp_dir.as_str()])
             .spawn()
         {
             if let Ok(_output) = command.wait_with_output() {
@@ -881,9 +885,10 @@ requested on the command line with `-W clippy::unwrap-used`*/;
     #[serial]
     // run the following bash commands
     // ```bash
-    // rm -rf abc
-    // cargo init --vcs git --bin abc
-    // cd abc
+    // temp=$(mktemp)
+    // rm -rf $temp
+    // cargo init --vcs git --bin $temp
+    // cd $temp
     // cat $code1 > src/main.rs
     // git add src/main.rs
     // git commit -am init
@@ -896,9 +901,10 @@ requested on the command line with `-W clippy::unwrap-used`*/;
     // cd -
     // ```
     fn fixed() {
+        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
             let debug_confirm = true;
             let args = Args {
-                folder: Some("abc".to_string()),
+                folder: Some(temp_dir.clone()),
                 flags: vec![],
                 patch: None,
                 confirm: debug_confirm,
@@ -907,7 +913,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
                 single: true,
             };
             my_args(args);
-            if let Ok(update_commit) = setup(
+            if let Ok(update_commit) = setup(temp_dir.clone(),
             r#"
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -924,7 +930,7 @@ fn main() {
         ) {
             std::io::set_output_capture(Some(Default::default()));
             let args = Args {
-                folder: Some("abc".to_string()),
+                folder: Some(temp_dir.clone()),
                 flags: vec![],
                 patch: Some(update_commit.to_string()),
                 confirm: debug_confirm,
@@ -957,8 +963,9 @@ fn main() {
     #[test]
     #[serial]
     fn pair() {
+        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
             let args = Args {
-                folder: Some("abc".to_string()),
+                folder: Some(temp_dir.clone()),
                 flags: vec![],
                 patch: None,
                 confirm: false,
@@ -967,7 +974,7 @@ fn main() {
                 single: true,
             };
             my_args(args);
-        if let Ok(update_commit) = setup(
+        if let Ok(update_commit) = setup(temp_dir.clone(),
             r#"
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -984,7 +991,7 @@ fn main() {
         ) {
             let debug_confirm = false;
             let args = Args {
-                folder: Some("abc".to_string()),
+                folder: Some(temp_dir.clone()),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: debug_confirm,
@@ -1017,8 +1024,9 @@ fn main() {
     }
 
     fn function_setup(code1: &str, code2: &str, code3: &str) {
+        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
         let args = Args {
-            folder: Some("abc".to_string()),
+            folder: Some(temp_dir.clone()),
             flags: vec![],
             patch: None,
             confirm: true,
@@ -1028,10 +1036,10 @@ fn main() {
         };
         my_args(args);
 
-        if let Ok(update_commit) = setup(code1, code2) {
+        if let Ok(update_commit) = setup(temp_dir.clone(), code1, code2) {
             dbg!(&update_commit);
             let args = Args {
-                folder: Some("abc".to_string()),
+                folder: Some(temp_dir.clone()),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
@@ -1132,8 +1140,9 @@ fn main() {
     #[test]
     #[serial]
     fn unfixed() {
+        let temp_dir = format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_");
             let args = Args {
-                folder: Some("abc".to_string()),
+                folder: Some(temp_dir.clone()),
                 flags: vec![],
                 patch: None,
                 confirm: true,
@@ -1142,7 +1151,7 @@ fn main() {
                 single: true,
             };
             my_args(args);
-         if let Ok(update_commit) = setup(
+         if let Ok(update_commit) = setup(temp_dir.clone(),
             r#"
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -1157,7 +1166,7 @@ fn main() {
 "#,
         ) {
             let args = Args {
-                folder: Some("abc".to_string()),
+                folder: Some(temp_dir.clone()),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
