@@ -849,7 +849,12 @@ fn run() {
 }
 
 fn get_function_items(p: &std::path::Path) -> Result<BTreeMap<LineRange, String>, anyhow::Error> {
-    splitup(read_to_string(p).unwrap())
+    if let Ok(s) = read_to_string(p) {
+        splitup(s)
+    } else {
+        let map: BTreeMap<LineRange, String> = BTreeMap::new();
+        Ok(map)
+    }
 }
 
 // Run cargo clippy to generate warnings from "foo.rs" into temporary "foo.rs.1" files
