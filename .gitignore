@@ -1,7 +1,8 @@
 /target
 txl*
 *.txl
-abc
 rd
 diagnostics
 src/snapshots
+tmp_*
+src/.main.rs.*
