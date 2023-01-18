@@ -227,28 +227,6 @@ fn main() {
 }
 ```
 
-### (optional) feature: `fix`
-Automated fix of warnings by `clippy` could be recorded as transformations,
-including the programs before and after of fixes. Furthermore, scope of such
-transformations are narrowed down to the individual items, making it easier to
-spot whether the exact warnings get fixed or not. The remaining unfixed
-warnings are still kept in the transformed results.
-
-### (optional) Generating inputs and outputs of warning fixes by `cargo clippy --fix`
-This requires that the 'fix’ feature being enabled when building the tool.
-
-The code snippets before fix are listed as `*.2.rs`, and after fix are listed
-as `*.3.rs` under the `transform/foo/` folder, where `foo.rs` is the Rust code
-that contains the fixed warnings.
-
-### (optional) Inherit Rustc flags to analyse diagnostics 
-This requires that the 'rustc_flags’ feature being enabled when building the tool.
-
-Rustc flags used in `.cargo/config` are typically inherited by the cargo
-clippy. In this way one can avoid typing multiple `-Wclippy::...` options from
-the command line. Using `rustc_flags` feature it is possible to inherit them
-from the compiler options.
-
 ## Acknowledgement
 
 - Thanks for [David Wood](https://davidtw.co), who offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;
