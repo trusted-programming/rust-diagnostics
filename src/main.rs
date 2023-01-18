@@ -176,16 +176,13 @@ fn splitup(source: String) -> anyhow::Result<BTreeMap<LineRange, String>> {
                 .collect::<anyhow::Result<Vec<ExtractedNode>>>()?;
             for m in extracted {
                 if m.name == "fn" {
-                    if let Ok(code) =
-                        std::str::from_utf8(&source.as_bytes()[m.start_byte..m.end_byte])
-                    {
-                        let lr = LineRange {
-                            start_byte: m.start_byte,
-                            start_line: m.start_line,
-                            end_line: m.end_line,
-                        };
-                        output.insert(lr, code.to_string());
-                    }
+                    let code = &source[m.start_byte..m.end_byte];
+                    let lr = LineRange {
+                        start_byte: m.start_byte,
+                        start_line: m.start_line,
+                        end_line: m.end_line,
+                    };
+                    output.insert(lr, code.to_string());
                 }
             }
         }
