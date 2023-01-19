@@ -441,13 +441,13 @@ impl std::fmt::Display for Hunk {
         if ! args.confirm || self.fixed {
             if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
                 if args.function {
-                    write!(f, "{}\n{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                    write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.context, self.new_context)
                 } else if args.pair {
-                    write!(f, "{}\n{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                    write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.header, self.old_text, self.new_text)
                 } else {
-                    write!(f, "{}\n{}{}", self.warnings, self.header, self.patch_text)
+                    write!(f, "{}{}{}", self.warnings, self.header, self.patch_text)
                 }
             } else { // no warning or more than one warnings
                 write!(f, "")
@@ -569,7 +569,7 @@ fn add_warnings_to_hunks(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTre
                        && h.old_end_line >= w.start_line
                     {
                         h.n_warnings += 1;
-                        h.warnings = format!("{}{}", h.warnings, w.name);
+                        h.warnings = format!("{}{}\n", h.warnings, w.name);
                     }
                });
             });

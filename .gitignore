@@ -1,6 +1,5 @@
 /target
 txl*
-*.txl
 rd
 diagnostics
 src/snapshots
