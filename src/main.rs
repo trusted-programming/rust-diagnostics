@@ -1,4 +1,3 @@
-#![feature(internal_output_capture)]
 use cargo_metadata::{diagnostic::Diagnostic, Message};
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -9,6 +8,7 @@ use std::{
     process::{Command, Stdio},
     sync::Mutex,
 };
+use std::io::prelude::*;
 
 mod language;
 use tree_sitter::QueryCursor;
@@ -375,16 +375,38 @@ fn get_flags() -> Vec<String> {
     flags
 }
 
-fn print_warning_count(all_warnings: BTreeMap<String, Vec<Warning>>) {
+fn open_file_to_append(file: String) -> Result<std::fs::File, String> {
+    if ! std::path::Path::new(&file).exists() {
+        open_file_to_write(file.clone())
+    } else {
+        let mut binding = std::fs::OpenOptions::new();
+        let option = binding.create_new(false).write(true).append(true);
+        match option.open(file.clone()) {
+            Err(e) => Err(format!("{e}")),
+            Ok(option) => Ok(option),
+        }
+    }
+}
+
+fn open_file_to_write(file: String) -> Result<std::fs::File, String> {
+    if std::path::Path::new(&file).exists() {
+        remove_a_file(file.as_str());
+    }
+    let mut binding = std::fs::OpenOptions::new();
+    let option = binding.create_new(true).write(true).append(false);
+    match option.open(file.clone()) {
+            Err(e) => Err(format!("{e}")),
+            Ok(option) => Ok(option),
+    }
+ }
+
+fn fprint_warning_count(file: String, all_warnings: BTreeMap<String, Vec<Warning>>) {
     let mut count = 0;
     all_warnings.iter().for_each(|(_k, v)| {
         count += v.len();
     });
-    println!(
-        "There are {} warnings in {} files.",
-        count,
-        all_warnings.len()
-    );
+    let mut file = open_file_to_write(file.clone()).unwrap();
+    file.write_all(format!("There are {} warnings in {} files.\n", count, all_warnings.len()).as_bytes()).ok();
 }
 
 fn get_current_id() -> Option<git2::Oid> {
@@ -458,11 +480,12 @@ impl std::fmt::Display for Hunk {
     }
 }
 
-fn print_hunks(map: BTreeMap<String, Vec<Hunk>>) 
+fn fprint_hunks(file: String, map: BTreeMap<String, Vec<Hunk>>) 
 {
+    let mut file = open_file_to_append(file.clone()).unwrap();
     map.iter().for_each(|(_, v)| {
         v.iter().for_each(|h| {
-            print!("{h}");
+            file.write_all(format!("{h}").as_bytes()).ok();
         });
     });
 }
@@ -671,7 +694,7 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
                 });
             });
         });
-        print_hunks(hunks);
+        fprint_hunks(format!("{folder}/diagnostics.log"), hunks);
     }
 }
 
@@ -680,7 +703,7 @@ fn run() {
     remove_previously_generated_files(format!("{folder}/diagnostics").as_str(), "*.rs"); // marked up
     let flags = get_flags();
     let all_warnings = diagnose_all_warnings(flags);
-    print_warning_count(all_warnings.clone());
+    fprint_warning_count(format!("{folder}/diagnostics.log"), all_warnings.clone());
     handle_patch(all_warnings);
 }
 
@@ -712,6 +735,20 @@ fn sub_messages(children: &[Diagnostic]) -> String {
         .join("\n")
 }
 
+fn remove_a_file(tmp: &str) {
+    if let Ok(mut command) = Command::new("rm")
+        .args(["-f", tmp])
+        .stdout(Stdio::piped())
+        .spawn()
+    {
+        if let Ok(w) = command.wait() {
+            if !w.success() {
+                eprintln!("wait not successful");
+            }
+        }
+    }
+}
+
 // remove the previously generated files under folder, matching with the pattern
 fn remove_previously_generated_files(folder: &str, pattern: &str) {
     if !std::path::Path::new(folder).exists() {
@@ -725,21 +762,12 @@ fn remove_previously_generated_files(folder: &str, pattern: &str) {
         if let Ok(output) = command.wait_with_output() {
             if let Ok(s) = String::from_utf8(output.stdout) {
                 s.split('\n').for_each(|tmp| {
-                    if let Ok(mut command) = Command::new("rm")
-                        .args(["-f", tmp])
-                        .stdout(Stdio::piped())
-                        .spawn()
-                    {
-                        if let Ok(w) = command.wait() {
-                            if !w.success() {
-                                println!("wait not successful");
-                            }
-                        }
-                    }
+                    remove_a_file(tmp);
                 });
             }
         }
     }
+    remove_a_file(format!("{folder}/diagnostics.log").as_str());
 }
 
 #[cfg(test)]
@@ -792,9 +820,9 @@ fn main() {
 fn main() {
     let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
 #[Warning(clippy::unwrap_used)
-note: if this value is an `Err`, it will panic
-for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used
-requested on the command line with `-W clippy::unwrap-used`*/;
+note: requested on the command line with `-W clippy::unwrap-used`
+if this value is an `Err`, it will panic
+for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used*/;
     println!("{s}");
 }
 "###); }
@@ -883,7 +911,6 @@ requested on the command line with `-W clippy::unwrap-used`*/;
         checkout(update_commit);
     }
 
-    use std::sync::Arc;
     #[test]
     #[serial]
     // run the following bash commands
@@ -931,7 +958,6 @@ fn main() {
 }
 "#,
         ) {
-            std::io::set_output_capture(Some(Default::default()));
             let args = Args {
                 folder: Some(temp_dir.clone()),
                 flags: vec![],
@@ -943,12 +969,8 @@ fn main() {
             };
             my_args(args);
             run();
-            let captured = std::io::set_output_capture(None).unwrap();
-            let captured = Arc::try_unwrap(captured).unwrap();
-            let captured = captured.into_inner().unwrap();
-            let captured = String::from_utf8(captured).unwrap();
             assert_eq!(
-                captured,
+                read_to_string(format!("{temp_dir}/diagnostics.log")).unwrap(),
                 r###"There are 1 warnings in 1 files.
 #[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
@@ -1002,15 +1024,10 @@ fn main() {
                 function: false,
                 single: true,
             };
-            std::io::set_output_capture(Some(Default::default()));
             my_args(args);
             run();
-            let captured = std::io::set_output_capture(None).unwrap();
-            let captured = Arc::try_unwrap(captured).unwrap();
-            let captured = captured.into_inner().unwrap();
-            let captured = String::from_utf8(captured).unwrap();
             assert_eq!(
-                captured,
+                read_to_string(format!("{temp_dir}/diagnostics.log")).unwrap(),
                 r###"There are 1 warnings in 1 files.
 #[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
@@ -1050,14 +1067,9 @@ fn main() {
                 function: true,
                 single: true,
             };
-            std::io::set_output_capture(Some(Default::default()));
             my_args(args);
             run();
-            let captured = std::io::set_output_capture(None).unwrap();
-            let captured = Arc::try_unwrap(captured).unwrap();
-            let captured = captured.into_inner().unwrap();
-            let captured = String::from_utf8(captured).unwrap();
-            assert_eq!(captured, code3);
+            assert_eq!(read_to_string(format!("{temp_dir}/diagnostics.log")).unwrap(),code3);
             teardown(update_commit);
         }
     }
@@ -1177,15 +1189,10 @@ fn main() {
                 function: false,
                 single: true,
             };
-            std::io::set_output_capture(Some(Default::default()));
             my_args(args);
             run();
-            let captured = std::io::set_output_capture(None).unwrap();
-            let captured = Arc::try_unwrap(captured).unwrap();
-            let captured = captured.into_inner().unwrap();
-            let captured = String::from_utf8(captured).unwrap();
             assert_eq!(
-                captured,
+                read_to_string(format!("{temp_dir}/diagnostics.log")).unwrap(),
                 r###"There are 1 warnings in 1 files.
 "###
             );
@@ -1216,13 +1223,9 @@ fn main() {
         }
         let oid = git2::Oid::from_str(rev1).unwrap();
         checkout(oid);
-        std::io::set_output_capture(Some(Default::default()));
         let rev2 = args.patch.unwrap();
         run(rev2.as_str());
-        let captured = std::io::set_output_capture(None).unwrap();
-        let captured = Arc::try_unwrap(captured).unwrap();
-        let captured = captured.into_inner().unwrap();
-        String::from_utf8(captured).unwrap()
+        read_to_string(format!("{temp_dir}/diagnostics.log")).unwrap()
     }
 
     fn rd_run(_rev2: &str) {
@@ -1231,10 +1234,10 @@ fn main() {
 
     fn diff_run(rev2: &str) {
         let folder = get_folder();
-        let repo = git2::Repository::open(folder).unwrap();
+        let repo = git2::Repository::open(folder.clone()).unwrap();
         let diff = get_diff(&repo, rev2.to_string());
         let hunks = get_hunks(diff.unwrap());
-        print_hunks(hunks);
+        fprint_hunks(format!("{}/diagnostics.log", folder.clone()), hunks);
     }
 
     #[test]
