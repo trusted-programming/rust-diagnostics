@@ -1,4 +1,5 @@
 ## Change Log
+- [x] remove dependencies requiring nightly, now only depends on stable rust
 - [x] Generate test results in random folders so there is less interference between tests
 - [x] Removed the optional features
 - [x] Refactor the code to simplify the logic by introduce a Hunk structure as unified state of various analyses
