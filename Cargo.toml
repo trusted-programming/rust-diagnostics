@@ -1,6 +1,6 @@
 [package]
 name = "rust-diagnostics"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 authors = [
     "Yijun Yu <y.yu@open.ac.uk>",
