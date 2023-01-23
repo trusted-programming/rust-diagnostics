@@ -1,5 +1,7 @@
 ## Change Log
-- [x] remove dependencies requiring nightly, now only depends on stable rust
+- [ ] Add an option `--location` to produce function-patch pairs for predicting exact the patch instead of predicting patched outputs from a function with warning
+- [ ] Add an option `--json` to save the messages into a file in case the information can be useful context
+- [x] Remove dependencies requiring nightly, now only depends on stable rust
 - [x] Generate test results in random folders so there is less interference between tests
 - [x] Removed the optional features
 - [x] Refactor the code to simplify the logic by introduce a Hunk structure as unified state of various analyses

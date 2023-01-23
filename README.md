@@ -161,7 +161,7 @@ Then run the following two commands, we can check whether the warning in r1 has 
 git checkout $r1
 rust-diagnostics --patch $r2 --confirm
 ```
-The output includes the count of warnings of $r1 and the hunks between $r1..$r2
+The output `diagnostics.log` includes the count of warnings of $r1 and the hunks between $r1..$r2
 that matters to fix the warnings listed in front of the hunks.
 
 For example, the output will be the same as those in the `git diff` format:
@@ -186,7 +186,7 @@ git checkout $r1
 rust-diagnostics --patch $r2 --confirm --pair
 ```
 
-For example, it will print
+For example, the `diagnostics.log` will contain
 ```
 There are 1 warnings in 1 files.
 #[Warning(clippy::unwrap_used)
@@ -233,3 +233,4 @@ fn main() {
 - Thanks for [Mara Bos](https://github.com/m-ou-se), who provided some hints on how to fix `unwrap()` warnings using `if-let` statements;
 - Thanks for [Amanieu d'Antras](https://github.com/Amanieu), who provided some explanation for the necessity of certain clippy rules in practice.
 - Thanks for [Josh Triplett](https://github.com/joshtriplett), who implemented `git-rs` which wraps the `libgit2` library to use in Rust.
+- Thanks for Dr Chunmiao Li, who implemented `unwrapped_used.txl` refactoring rule to tackle fix the corresponding warning.
