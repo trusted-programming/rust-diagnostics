@@ -1,5 +1,6 @@
 ## Change Log
-- [ ] Add an option `--location` to markup the old_context with the warnings
+- [x] Fix the ordering of diagnostic hints so that the regression test will be repeatable 
+- [x] Add an option `--location` to markup the old_context with the warnings
 - [x] Add an option `--mixed` to save the messages into a file in case the information can be useful context
 - [x] Save the messages into `[$hash]/diagnostics.json` to avoid rerun the compilation for changes of the tool features
       where $hash is the hash id of the current work copy of a git repository

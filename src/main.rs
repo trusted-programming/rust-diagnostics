@@ -45,7 +45,7 @@ struct Args {
     /// markup the function with exact warning
     location: bool,
     #[structopt(name = "mixed", long)]
-    /// markup the function with exact warning, and print old_context => patch_text
+    /// markup the function with exact warning, and print context => patch_text
     mixed: bool,
 }
 
@@ -286,7 +286,51 @@ fn get_folder() -> String {
         folder = f;
     }
     folder
- }
+}
+
+// mark up the given code of $filename within a line range $lr with the warnings $ws
+fn markup_code(source: &[u8], lr: &LineRange, ws: Vec<Warning>) -> Vec<u8> 
+{
+    let mut output = Vec::new();
+    let mut num_lines = 0;
+    for (i, c) in source.iter().enumerate() {
+        if lr.start_line <= num_lines && num_lines <= lr.end_line {
+            for w in &ws {
+                // deal with the element
+                if w.start <= i && i < w.end && i == w.start {
+                    output.extend(format!("/*{}*/", w.name).as_bytes());
+                }
+                if w.end == i {
+                    output.extend(
+                        format!(
+                            "/*\n{}{}{}*/",
+                            w.name,
+                            if w.suggestion == "None" {
+                                EMPTY_STRING.to_string()
+                            } else {
+                                format!(
+                                    "\nsuggestion: {}",
+                                    w.suggestion.replace("\\n", "\n").replace('\"', "")
+                                )
+                            },
+                            if w.note == "None" {
+                                EMPTY_STRING.to_string()
+                            } else {
+                                format!("\nnote: {}", w.note.replace("\\n", "\n").replace('\"', ""))
+                            }
+                        )
+                        .as_bytes(),
+                    )
+                }
+            }
+            output.push(*c);
+        }
+        if *c == b'\n' as u8 {
+            num_lines += 1;
+        }
+    }
+    output
+}
 
 // markup all warnings into diagnostics
 fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
@@ -507,8 +551,13 @@ impl std::fmt::Display for Hunk {
                         write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.new_context)
                     } else {
-                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
-                            self.warnings, self.context, self.patch_text)
+                        if args.location {
+                            write!(f, "{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                                self.warnings, self.context, self.patch_text)
+                        } else {
+                            write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                                self.warnings, self.context, self.patch_text)
+                        }
                     }
                 } else if args.pair {
                     write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
@@ -708,11 +757,13 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
         let repo = git2::Repository::open(&folder).unwrap();
         let diff = get_diff(&repo, id.to_string()).unwrap();
         let mut hunks = get_hunks(diff);
-        add_warnings_to_hunks(&mut hunks, all_warnings);
+        add_warnings_to_hunks(&mut hunks, all_warnings.clone());
         let new_warnings = get_all_new_warnings();
         check_fixed(&mut hunks, new_warnings);
-        hunks.iter_mut().for_each(|(k,v)| {
-            let filename = format!("{folder}/{k}");
+        hunks.iter_mut().for_each(|(k0,v)| {
+            let filename = format!("{folder}/{k0}");
+            let source = read_to_string(filename.as_str()).unwrap();
+            let source = source.as_bytes();
             let p = std::path::Path::new(filename.as_str());
             let function_items = get_function_items(p).unwrap();
             v.iter_mut().for_each(|h| {
@@ -722,7 +773,17 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
                     if k.start_line <= usize::try_from(prev_l).unwrap()
                         && usize::try_from(prev_r).unwrap() <= k.end_line
                     {
-                        h.context = f.to_string();
+                        if args.location {
+                            let ws = &all_warnings.get(k0).unwrap();
+                            let markedup = &markup_code(source, k, ws.to_vec());
+                            if let Ok(s) = std::str::from_utf8(markedup) {
+                                h.context = s.to_string();
+                            } else {
+                                h.context = f.to_string();
+                            }
+                        } else {
+                            h.context = f.to_string();
+                        }
                         let n = h.old_start_line - k.start_line - 1;
                         let m = h.old_end_line - k.start_line;
                         let lines: Vec<&str> = f.split('\n').collect();
@@ -768,7 +829,7 @@ fn main() {
 }
 
 fn sub_messages(children: &[Diagnostic]) -> String {
-    children
+    let mut v = children
         .iter()
         .map(|x| {
             if let Some(rendered) = &x.rendered {
@@ -777,8 +838,9 @@ fn sub_messages(children: &[Diagnostic]) -> String {
                 x.message.to_owned()
             }
         })
-        .collect::<Vec<String>>()
-        .join("\n")
+        .collect::<Vec<String>>();
+    v.sort();
+    v.join("\n")
 }
 
 fn remove_a_file(tmp: &str) {
@@ -826,10 +888,9 @@ mod tests {
         format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_")
     }
 
-    // FIXME: the ordering of notes are a bit random, not always able to pass the regression
-    // #[test]
-    // #[serial]
-    fn _diagnostics() {
+    #[test]
+    #[serial]
+    fn diagnostics() {
         let temp_dir = get_temp_dir();
         let args = Args {
             folder: Some(temp_dir.clone()),
@@ -870,9 +931,9 @@ fn main() {
 fn main() {
     let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
 #[Warning(clippy::unwrap_used)
-note: if this value is an `Err`, it will panic
-requested on the command line with `-W clippy::unwrap-used`
-for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used*/;
+note: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used
+if this value is an `Err`, it will panic
+requested on the command line with `-W clippy::unwrap-used`*/;
     println!("{s}");
 }
 "###); }
@@ -1139,6 +1200,41 @@ fn main() {
         }
     }
 
+    fn location_mixed_function_setup(code1: &str, code2: &str, code3: &str) {
+        let temp_dir = get_temp_dir();
+        let args = Args {
+            folder: Some(temp_dir.clone()),
+            flags: vec![],
+            patch: None,
+            confirm: true,
+            pair: true,
+            function: true,
+            single: true,
+            location: true,
+            mixed: true,
+        };
+        my_args(args);
+
+        if let Ok(update_commit) = setup(temp_dir.clone(), code1, code2) {
+            dbg!(&update_commit);
+            let args = Args {
+                folder: Some(temp_dir.clone()),
+                flags: vec![],
+                patch: Some(format!("{update_commit}")),
+                confirm: true,
+                pair: true,
+                function: true,
+                single: true,
+                location: true,
+                mixed: true,
+            };
+            my_args(args);
+            let diagnostics_folder = get_diagnostics_folder();
+            run();
+            assert_eq!(read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(), code3);
+            teardown(update_commit);
+        }
+    }
 
     fn function_setup(code1: &str, code2: &str, code3: &str) {
         let temp_dir = get_temp_dir();
@@ -1175,6 +1271,50 @@ fn main() {
             teardown(update_commit);
         }
     }
+
+    #[test]
+    #[serial]
+    fn function_mixed_location() {
+        location_mixed_function_setup(
+            r#"
+fn main() {
+
+
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+"#,
+            r#"
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"#,
+            r###"There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+fn main() {
+
+
+    let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
+#[Warning(clippy::unwrap_used)
+note: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used
+if this value is an `Err`, it will panic
+requested on the command line with `-W clippy::unwrap-used`*/;
+    println!("{s}");
+}
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+-
+-
+-    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+-    println!("{s}");
++    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
++        println!("{s}");
++    }
+"###,
+        );
+    }
+
 
     #[test]
     #[serial]
