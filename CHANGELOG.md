@@ -1,6 +1,8 @@
 ## Change Log
-- [ ] Add an option `--location` to produce function-patch pairs for predicting exact the patch instead of predicting patched outputs from a function with warning
-- [ ] Add an option `--json` to save the messages into a file in case the information can be useful context
+- [ ] Add an option `--location` to markup the old_context with the warnings
+- [ ] Add an option `--mixed` to save the messages into a file in case the information can be useful context
+- [x] Save the messages into `[$hash]/diagnostics.json` to avoid rerun the compilation for changes of the tool features
+      where $hash is the hash id of the current work copy of a git repository
 - [x] Remove dependencies requiring nightly, now only depends on stable rust
 - [x] Generate test results in random folders so there is less interference between tests
 - [x] Removed the optional features
