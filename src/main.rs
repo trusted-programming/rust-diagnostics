@@ -503,8 +503,13 @@ impl std::fmt::Display for Hunk {
         if ! args.confirm || self.fixed {
             if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
                 if args.function {
-                    write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
-                        self.warnings, self.context, self.new_context)
+                    if !args.mixed {
+                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                            self.warnings, self.context, self.new_context)
+                    } else {
+                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                            self.warnings, self.context, self.patch_text)
+                    }
                 } else if args.pair {
                     write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.header, self.old_text, self.new_text)
@@ -1098,6 +1103,43 @@ fn main() {
         }
     }
 
+    fn mixed_function_setup(code1: &str, code2: &str, code3: &str) {
+        let temp_dir = get_temp_dir();
+        let args = Args {
+            folder: Some(temp_dir.clone()),
+            flags: vec![],
+            patch: None,
+            confirm: true,
+            pair: true,
+            function: true,
+            single: true,
+            location: false,
+            mixed: true,
+        };
+        my_args(args);
+
+        if let Ok(update_commit) = setup(temp_dir.clone(), code1, code2) {
+            dbg!(&update_commit);
+            let args = Args {
+                folder: Some(temp_dir.clone()),
+                flags: vec![],
+                patch: Some(format!("{update_commit}")),
+                confirm: true,
+                pair: true,
+                function: true,
+                single: true,
+                location: false,
+                mixed: true,
+            };
+            my_args(args);
+            let diagnostics_folder = get_diagnostics_folder();
+            run();
+            assert_eq!(read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(), code3);
+            teardown(update_commit);
+        }
+    }
+
+
     fn function_setup(code1: &str, code2: &str, code3: &str) {
         let temp_dir = get_temp_dir();
         let args = Args {
@@ -1133,6 +1175,46 @@ fn main() {
             teardown(update_commit);
         }
     }
+
+    #[test]
+    #[serial]
+    fn function_mixed() {
+        mixed_function_setup(
+            r#"
+fn main() {
+
+
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+"#,
+            r#"
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+"#,
+            r###"There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+fn main() {
+
+
+    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+    println!("{s}");
+}
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+-
+-
+-    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+-    println!("{s}");
++    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
++        println!("{s}");
++    }
+"###,
+        );
+    }
+
 
     #[test]
     #[serial]
