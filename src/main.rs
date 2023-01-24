@@ -219,7 +219,13 @@ fn to_diagnostic(map: &mut BTreeMap<String, Vec<Warning>>, args: Vec<String>) {
     let json_filename = format!("{diagnostics_folder}/diagnostics.json");
     let p = std::path::Path::new(json_filename.as_str());
     if !p.exists() {
-        if let Ok(mut command) = Command::new("cargo")
+        let mut cargo = "cargo";
+        if std::path::Path::new("x.py").exists() {
+            cargo = "./x.py";
+        } else if std::path::Path::new("miri").exists() {
+            cargo = "./miri";
+        }
+        if let Ok(mut command) = Command::new(cargo)
             .args(args)
             .stdout(Stdio::piped())
             .spawn()
