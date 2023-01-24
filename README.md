@@ -283,9 +283,9 @@ warning is and the inserted markup hints already shifted the original line numbe
 
 ## Acknowledgement
 
-- Thanks for [David Wood](https://davidtw.co), who offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;
-- Thanks for [Mara Bos](https://github.com/m-ou-se), who provided some hints on how to fix `unwrap()` warnings using `if-let` statements;
-- Thanks for [Amanieu d'Antras](https://github.com/Amanieu), who provided some explanation for the necessity of certain clippy rules in practice.
-- Thanks for [Josh Triplett](https://github.com/joshtriplett), who implemented `git2-rs` which wraps the `libgit2` library to use in Rust.
-- Thanks for Dr Chunmiao Li, who implemented `unwrapped_used.txl` refactoring rule to tackle fix the corresponding warning.
-- Thanks for [Dr Nghi Bui](https://github.com/bdqnghi), who suggested an idea to create mixed pairs.
+- [David Wood](https://davidtw.co) offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;
+- [Mara Bos](https://github.com/m-ou-se) provided some hints on how to fix `unwrap()` warnings using `if-let` statements;
+- [Amanieu d'Antras](https://github.com/Amanieu) provided some explanation for the necessity of certain clippy rules in practice, he also improves the performance of the underlying BTreeMap.
+- [Josh Triplett](https://github.com/joshtriplett) implemented the underlying `git2-rs` which wraps the `libgit2` library in Rust.
+- Dr Chunmiao Li implemented the refactoring rule `unwrapped_used.txl` to fix the corresponding warnings automatically.
+- [Dr Nghi Bui](https://github.com/bdqnghi) suggested an idea to create mixed pairs.
