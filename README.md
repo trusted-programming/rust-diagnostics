@@ -26,7 +26,7 @@ cargo install rust-diagnostics
 
 The full synoposis of the command is shown below.
 ```bash
-rust-diagnostics [--patch <commit_id> [--confirm] [--pair] [--function] [--single] ]
+rust-diagnostics [--patch <commit_id> [--confirm] [--pair] [--function] [--single] [--location] [--mixed] ]
 ```
 
 ### A running example
