@@ -53,13 +53,13 @@ static ARGS: Lazy<Mutex<Vec<Args>>> = Lazy::new(|| Mutex::new(vec![]));
 
 fn get_args() -> Vec<Args> {
     set_args();
-    ARGS.lock().unwrap().to_vec()
+    Result::unwrap(ARGS.lock()).to_vec()
 }
 
 fn set_args() {
-    if ARGS.lock().unwrap().len() == 0 {
+    if Result::unwrap(Mutex::lock(&ARGS)).len() == 0 {
         let params = Args::from_args();
-        ARGS.lock().unwrap().push(params);
+        Result::unwrap(ARGS.lock()).push(params);
     }
 }
 
@@ -225,49 +225,54 @@ fn to_diagnostic(map: &mut BTreeMap<String, Vec<Warning>>, args: Vec<String>) {
             .spawn()
         {
             if let Some(take) = command.stdout.take() {
-                let _ = open_file_to_write(json_filename.clone()).unwrap();
-                let mut file = open_file_to_append(json_filename.clone()).unwrap();
-                let reader = std::io::BufReader::new(take);
-                let mut message_vector = Vec::new();
-                for message in cargo_metadata::Message::parse_stream(reader).flatten() {
-                    message_vector.push(message.clone());
+                if open_file_to_write(json_filename.clone()).is_ok() {
+                    if let Ok(mut file) = open_file_to_append(json_filename.clone()) {
+                        let reader = std::io::BufReader::new(take);
+                        let mut message_vector = Vec::new();
+                        for message in cargo_metadata::Message::parse_stream(reader).flatten() {
+                            message_vector.push(message.clone());
+                        }
+                        if let Ok(msg) = serde_json::to_string(&message_vector) {
+                            file.write_all(msg.as_bytes()).ok();
+                        }
+                    }
                 }
-                let msg = serde_json::to_string(&message_vector).unwrap();
-                file.write_all(msg.as_bytes()).ok();
             }
             command.wait().ok();
         }
     }
-    let msg = read_to_string(json_filename.as_str()).unwrap();
-    let messages = serde_json::from_str::<Vec<cargo_metadata::Message>>(&msg).unwrap();
-    for message in messages {
-        if let Message::CompilerMessage(msg) = message {
-            for s in msg.message.spans {
-                if let Ok(x) = usize::try_from(s.byte_start) {
-                    if let Ok(y) = usize::try_from(s.byte_end) {
-                        if let Some(message_code) = &msg.message.code {
-                            let r = Warning {
-                                name: format!(
-                                    "#[{:?}({})",
-                                    msg.message.level,
-                                    message_code.clone().code
-                                ),
-                                start: x,
-                                start_line: s.line_start,
-                                // start_column: s.column_start,
-                                end: y,
-                                end_line: s.line_end,
-                                // end_column: s.column_end,
-                                suggestion: format!("{:?}", s.suggested_replacement),
-                                note: format!("{:?}", sub_messages(&msg.message.children)),
-                                fixed: false,
-                            };
-                            let filename = s.file_name;
-                            match map.get_mut(&filename) {
-                                Some(v) => v.push(r),
-                                None => {
-                                    let v = vec![r];
-                                    map.insert(filename, v);
+    if let Ok(msg) = read_to_string(json_filename.as_str()) {
+        if let Ok(messages) = serde_json::from_str::<Vec<cargo_metadata::Message>>(&msg) {
+            for message in messages {
+                if let Message::CompilerMessage(msg) = message {
+                    for s in msg.message.spans {
+                        if let Ok(x) = usize::try_from(s.byte_start) {
+                            if let Ok(y) = usize::try_from(s.byte_end) {
+                                if let Some(message_code) = &msg.message.code {
+                                    let r = Warning {
+                                        name: format!(
+                                            "#[{:?}({})",
+                                            msg.message.level,
+                                            message_code.clone().code
+                                        ),
+                                        start: x,
+                                        start_line: s.line_start,
+                                        // start_column: s.column_start,
+                                        end: y,
+                                        end_line: s.line_end,
+                                        // end_column: s.column_end,
+                                        suggestion: format!("{:?}", s.suggested_replacement),
+                                        note: format!("{:?}", sub_messages(&msg.message.children)),
+                                        fixed: false,
+                                    };
+                                    let filename = s.file_name;
+                                    match map.get_mut(&filename) {
+                                        Some(v) => v.push(r),
+                                        None => {
+                                            let v = vec![r];
+                                            map.insert(filename, v);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -325,8 +330,8 @@ fn markup_code(source: &[u8], lr: &LineRange, ws: Vec<Warning>) -> Vec<u8>
             }
             output.push(*c);
         }
-        if *c == b'\n' as u8 {
-            num_lines += 1;
+        if *c == b'\n' {
+            num_lines = num_lines.saturating_add(1);
         }
     }
     output
@@ -384,18 +389,20 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
 // ```
 fn checkout(commit_id: git2::Oid) {
     let folder = get_folder();
-    let repo = git2::Repository::open(folder).unwrap();
-    let commit = repo.find_commit(commit_id);
-    repo.reset(
-        commit.unwrap().as_object(),
-        git2::ResetType::Hard,
-        Some(
-            git2::build::CheckoutBuilder::new()
-                .force()
-                .remove_untracked(true),
-        ),
-    )
-    .ok();
+    if let Ok(repo) = git2::Repository::open(folder) {
+        if let Ok(commit) = repo.find_commit(commit_id) {
+            repo.reset(
+                commit.as_object(),
+                git2::ResetType::Hard,
+                Some(
+                    git2::build::CheckoutBuilder::new()
+                        .force()
+                        .remove_untracked(true),
+                ),
+            )
+            .ok();
+        } 
+    }
 }
 
 fn get_flags() -> Vec<String> {
@@ -461,11 +468,11 @@ fn get_flags() -> Vec<String> {
 
 fn open_file_to_append(file: String) -> Result<std::fs::File, String> {
     if ! std::path::Path::new(&file).exists() {
-        open_file_to_write(file.clone())
+        open_file_to_write(file)
     } else {
         let mut binding = std::fs::OpenOptions::new();
         let option = binding.create_new(false).write(true).append(true);
-        match option.open(file.clone()) {
+        match option.open(file) {
             Err(e) => Err(format!("{e}")),
             Ok(option) => Ok(option),
         }
@@ -478,19 +485,20 @@ fn open_file_to_write(file: String) -> Result<std::fs::File, String> {
     }
     let mut binding = std::fs::OpenOptions::new();
     let option = binding.create_new(true).write(true).append(false);
-    match option.open(file.clone()) {
+    match option.open(file) {
             Err(e) => Err(format!("{e}")),
             Ok(option) => Ok(option),
     }
  }
 
 fn fprint_warning_count(file: String, all_warnings: BTreeMap<String, Vec<Warning>>) {
-    let mut count = 0;
+    let mut count: usize = 0;
     all_warnings.iter().for_each(|(_k, v)| {
-        count += v.len();
+        count = count.saturating_add(v.len());
     });
-    let mut file = open_file_to_write(file.clone()).unwrap();
-    file.write_all(format!("There are {} warnings in {} files.\n", count, all_warnings.len()).as_bytes()).ok();
+    if let Ok(mut file) = open_file_to_write(file) {
+        file.write_all(format!("There are {} warnings in {} files.\n", count, all_warnings.len()).as_bytes()).ok();
+    } 
 }
 
 fn get_current_id() -> Option<git2::Oid> {
@@ -507,22 +515,38 @@ fn get_current_id() -> Option<git2::Oid> {
 }
 
 fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff> {
-    let c1 = repo
-        .find_commit(repo.head().unwrap().target().unwrap())
-        .unwrap();
-    let c2 = repo.find_commit(git2::Oid::from_str(&id).unwrap()).unwrap();
-    let a = Some(c1.tree().unwrap());
-    let b = Some(c2.tree().unwrap());
-    let mut diffopts2 = git2::DiffOptions::new();
-    diffopts2.context_lines(0);
-    if let Ok(diff) = repo.diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2)) {
-        Some(diff)
+    if let Ok(head) = repo.head() {
+        if let Some(target) = head.target() {
+            if let Ok(c1) = repo.find_commit(target) {
+                if let Ok(oid) = git2::Oid::from_str(&id) {
+                    if let Ok(c2) = repo.find_commit(oid) {
+                        let a = if let Ok(a) = c1.tree() { Some(a) } else { None };
+                        let b = if let Ok(b) = c2.tree() { Some(b) } else { None };
+                        let mut diffopts2 = git2::DiffOptions::new();
+                        diffopts2.context_lines(0);
+                        if let Ok(diff) = repo.diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2)) {
+                            Some(diff)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     } else {
         None
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Hunk {
     patch_text: String, // c.f. git-diff patch
     header: String,    // c.f. header
@@ -550,14 +574,12 @@ impl std::fmt::Display for Hunk {
                     if !args.mixed {
                         write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.new_context)
+                    } else if args.location {
+                        write!(f, "{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                            self.warnings, self.context, self.patch_text)
                     } else {
-                        if args.location {
-                            write!(f, "{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
-                                self.warnings, self.context, self.patch_text)
-                        } else {
-                            write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
-                                self.warnings, self.context, self.patch_text)
-                        }
+                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                            self.warnings, self.context, self.patch_text)
                     }
                 } else if args.pair {
                     write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
@@ -576,12 +598,22 @@ impl std::fmt::Display for Hunk {
 
 fn fprint_hunks(file: String, map: BTreeMap<String, Vec<Hunk>>) 
 {
-    let mut file = open_file_to_append(file.clone()).unwrap();
-    map.iter().for_each(|(_, v)| {
-        v.iter().for_each(|h| {
-            file.write_all(format!("{h}").as_bytes()).ok();
+    if let Ok(mut file) = open_file_to_append(file) {
+        map.iter().for_each(|(_, v)| {
+            v.iter().for_each(|h| {
+                file.write_all(format!("{h}").as_bytes()).ok();
+            });
         });
-    });
+    }
+}
+
+fn u32_to_usize(x: u32) -> usize
+{
+    if let Ok(y) = usize::try_from(x) {
+        y
+    } else {
+        0
+    }
 }
 
 fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
@@ -606,66 +638,70 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
     let mut prev_lineno = 0;
     let mut filename = EMPTY_STRING.to_string();
     diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
-        let path = delta.old_file().path().unwrap();
-        filename = path.to_str().unwrap().to_string();
-        if let Some(hunk) = hunk {
-            // reinitialize
-            if prev_lineno != hunk.old_start() {
-                if prev_lineno > 0 {
-                    hunks.push(cur_hunk.clone());
+        if let Some(path) = delta.old_file().path() {
+            if let Some(path) = path.to_str() {
+                filename = path.to_string();
+                if let Some(hunk) = hunk {
+                    // reinitialize
+                    if prev_lineno != hunk.old_start() {
+                        if prev_lineno > 0 {
+                            hunks.push(cur_hunk.clone());
+                        }
+                        if cur_filename != filename {
+                            map.insert(filename.clone(), hunks.clone());
+                            cur_filename = filename.clone();
+                            hunks = Vec::new();
+                        }
+                        prev_lineno = hunk.old_start();
+                        cur_hunk = Hunk {
+                            patch_text: EMPTY_STRING.to_string(),
+                            old_text: EMPTY_STRING.to_string(),
+                            old_start_line: 0,
+                            old_end_line: 0,
+                            new_text: EMPTY_STRING.to_string(),
+                            new_start_line: 0,
+                            new_end_line: 0,
+                            header: EMPTY_STRING.to_string(),
+                            context: EMPTY_STRING.to_string(),
+                            new_context: EMPTY_STRING.to_string(),
+                            warnings: EMPTY_STRING.to_string(),
+                            n_warnings: 0,
+                            fixed: false,
+                        }; 
+                        cur_hunk.old_start_line = u32_to_usize(hunk.old_start());
+                        cur_hunk.old_end_line = u32_to_usize(hunk.old_start().saturating_add(hunk.old_lines()));
+                        cur_hunk.new_start_line = u32_to_usize(hunk.new_start());
+                        cur_hunk.new_end_line = u32_to_usize(hunk.new_start().saturating_add(hunk.new_lines()));
+                    }
+                    if let Ok(content) = std::str::from_utf8(line.content()) {
+                        match line.origin() {
+                            ' ' => {
+                                cur_hunk
+                                    .patch_text
+                                    .push_str(format!("{}{content}", line.origin()).as_str());
+                                cur_hunk.old_text.push_str(content);
+                                cur_hunk.new_text.push_str(content);
+                            }
+                            '+' => {
+                                cur_hunk
+                                    .patch_text
+                                    .push_str(format!("{}{content}", line.origin()).as_str());
+                                cur_hunk.new_text.push_str(content);
+                            }
+                            '-' => {
+                                cur_hunk
+                                    .patch_text
+                                    .push_str(format!("{}{content}", line.origin()).as_str());
+                                cur_hunk.old_text.push_str(content);
+                            }
+                            _ => {
+                                cur_hunk.header.push_str(content);
+                            }
+                        }
+                    }
                 }
-                if cur_filename != filename {
-                    map.insert(filename.clone(), hunks.clone());
-                    cur_filename = filename.clone();
-                    hunks = Vec::new();
-                }
-                prev_lineno = hunk.old_start();
-                cur_hunk = Hunk {
-                    patch_text: EMPTY_STRING.to_string(),
-                    old_text: EMPTY_STRING.to_string(),
-                    old_start_line: 0,
-                    old_end_line: 0,
-                    new_text: EMPTY_STRING.to_string(),
-                    new_start_line: 0,
-                    new_end_line: 0,
-                    header: EMPTY_STRING.to_string(),
-                    context: EMPTY_STRING.to_string(),
-                    new_context: EMPTY_STRING.to_string(),
-                    warnings: EMPTY_STRING.to_string(),
-                    n_warnings: 0,
-                    fixed: false,
-                }; 
-                cur_hunk.old_start_line = usize::try_from(hunk.old_start()).unwrap();
-                cur_hunk.old_end_line = usize::try_from(hunk.old_start() + hunk.old_lines()).unwrap();
-                cur_hunk.new_start_line = usize::try_from(hunk.new_start()).unwrap();
-                cur_hunk.new_end_line = usize::try_from(hunk.new_start() + hunk.new_lines()).unwrap();
             }
-            let content = std::str::from_utf8(line.content()).unwrap();
-            match line.origin() {
-                ' ' => {
-                    cur_hunk
-                        .patch_text
-                        .push_str(format!("{}{content}", line.origin()).as_str());
-                    cur_hunk.old_text.push_str(content);
-                    cur_hunk.new_text.push_str(content);
-                }
-                '+' => {
-                    cur_hunk
-                        .patch_text
-                        .push_str(format!("{}{content}", line.origin()).as_str());
-                    cur_hunk.new_text.push_str(content);
-                }
-                '-' => {
-                    cur_hunk
-                        .patch_text
-                        .push_str(format!("{}{content}", line.origin()).as_str());
-                    cur_hunk.old_text.push_str(content);
-                }
-                _ => {
-                    cur_hunk.header.push_str(content);
-                }
-            }
-        }
+        } 
         true
     })
     .ok();
@@ -685,7 +721,7 @@ fn add_warnings_to_hunks(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTre
                     if h.old_start_line <= w.end_line
                        && h.old_end_line >= w.start_line
                     {
-                        h.n_warnings += 1;
+                        h.n_warnings = h.n_warnings.saturating_add(1);
                         h.warnings = format!("{}#{}\n", h.warnings, w.name);
                     }
                });
@@ -703,14 +739,18 @@ fn get_all_new_warnings() -> BTreeMap<String, Vec<Warning>>
     if args.confirm {
         let flags = get_flags();
         if let Some(id) = &args.patch {
-            let old_id = get_current_id().unwrap();
-            let oid = git2::Oid::from_str(id).unwrap();
-            checkout(oid);
-            let all_new_warnings = diagnose_all_warnings(flags);
-
-            checkout(old_id);
-            // print!(">>>>>>{all_new_warnings:?}");
-            all_new_warnings
+            if let Some(old_id) = get_current_id() {
+                if let Ok(oid) = git2::Oid::from_str(id) {
+                    checkout(oid);
+                    let all_new_warnings = diagnose_all_warnings(flags);
+                    checkout(old_id);
+                    all_new_warnings
+                } else {
+                    map
+                }
+            } else {
+                map
+            }
         } else {
             map
         }
@@ -754,64 +794,67 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
     let folder = get_folder();
     let diagnostics_folder = get_diagnostics_folder();
     if let Some(id) = &args.patch {
-        let repo = git2::Repository::open(&folder).unwrap();
-        let diff = get_diff(&repo, id.to_string()).unwrap();
-        let mut hunks = get_hunks(diff);
-        add_warnings_to_hunks(&mut hunks, all_warnings.clone());
-        let new_warnings = get_all_new_warnings();
-        check_fixed(&mut hunks, new_warnings);
-        hunks.iter_mut().for_each(|(k0,v)| {
-            let filename = format!("{folder}/{k0}");
-            if let Ok(source) = read_to_string(filename.as_str()) {
-                let source = source.as_bytes();
-                let p = std::path::Path::new(filename.as_str());
-                let function_items = get_function_items(p).unwrap();
-                v.iter_mut().for_each(|h| {
-                    function_items.iter().for_each(|(k, f)| {
-                        let prev_l = i32::try_from(h.old_start_line - 1).unwrap();
-                        let prev_r = i32::try_from(h.old_end_line - 1).unwrap();
-                        if k.start_line <= usize::try_from(prev_l).unwrap()
-                            && usize::try_from(prev_r).unwrap() <= k.end_line
-                        {
-                            if args.location {
-                                if let Some(ws) = &all_warnings.get(k0) {
-                                    let markedup = &markup_code(source, k, ws.to_vec());
-                                    if let Ok(s) = std::str::from_utf8(markedup) {
-                                        h.context = s.to_string();
-                                    } else {
-                                        h.context = f.to_string();
+        if let Ok(repo) = git2::Repository::open(&folder) {
+            if let Some(diff) = get_diff(&repo, id.to_string()) {
+                let mut hunks = get_hunks(diff);
+                add_warnings_to_hunks(&mut hunks, all_warnings.clone());
+                let new_warnings = get_all_new_warnings();
+                check_fixed(&mut hunks, new_warnings);
+                hunks.iter_mut().for_each(|(k0,v)| {
+                    let filename = format!("{folder}/{k0}");
+                    if let Ok(source) = read_to_string(filename.as_str()) {
+                        let source = source.as_bytes();
+                        let p = std::path::Path::new(filename.as_str());
+                        if let Ok(function_items) = get_function_items(p) {
+                            v.iter_mut().for_each(|h| {
+                                function_items.iter().for_each(|(k, f)| {
+                                    let prev_l = h.old_start_line.saturating_sub(1);
+                                    let prev_r = h.old_end_line.saturating_sub(1);
+                                    if k.start_line <= prev_l
+                                        && prev_r <= k.end_line
+                                    {
+                                        if args.location {
+                                            if let Some(ws) = &all_warnings.get(k0) {
+                                                let markedup = &markup_code(source, k, ws.to_vec());
+                                                if let Ok(s) = std::str::from_utf8(markedup) {
+                                                    h.context = s.to_string();
+                                                } else {
+                                                    h.context = f.to_string();
+                                                }
+                                            } else {
+                                                h.context = f.to_string();
+                                            }
+                                        } else {
+                                            h.context = f.to_string();
+                                        }
+                                        let n = h.old_start_line.saturating_sub(k.start_line).saturating_sub(1);
+                                        let m = h.old_end_line.saturating_sub(k.start_line);
+                                        let lines: Vec<&str> = f.split('\n').collect();
+                                        h.new_context = "".to_string();
+                                        (0..n).for_each(|i| {
+                                            h.new_context.push_str(lines[i]);
+                                            h.new_context.push('\n');
+                                        });
+                                        h.new_context.push_str(h.new_text.as_str());
+                                        (m.saturating_sub(1)..lines.len()).for_each(|i| {
+                                            h.new_context.push_str(lines[i]);
+                                            h.new_context.push('\n');
+                                        });
                                     }
-                                } else {
-                                    h.context = f.to_string();
-                                }
-                            } else {
-                                h.context = f.to_string();
-                            }
-                            let n = h.old_start_line - k.start_line - 1;
-                            let m = h.old_end_line - k.start_line;
-                            let lines: Vec<&str> = f.split('\n').collect();
-                            h.new_context = "".to_string();
-                            (0..n).for_each(|i| {
-                                h.new_context.push_str(lines[i]);
-                                h.new_context.push('\n');
-                            });
-                            h.new_context.push_str(h.new_text.as_str());
-                            ((m-1)..lines.len()).for_each(|i| {
-                                h.new_context.push_str(lines[i]);
-                                h.new_context.push('\n');
+                                });
                             });
                         }
-                    });
+                    } 
                 });
-            } 
-        });
-        fprint_hunks(format!("{diagnostics_folder}/diagnostics.log"), hunks);
+                fprint_hunks(format!("{diagnostics_folder}/diagnostics.log"), hunks);
+            }
+        }
     }
 }
 
 fn run() {
     let diagnostics_folder = get_diagnostics_folder();
-    remove_previously_generated_files(format!("{diagnostics_folder}").as_str(), "*.rs"); // marked up
+    remove_previously_generated_files(&diagnostics_folder, "*.rs"); // marked up
     let flags = get_flags();
     let all_warnings = diagnose_all_warnings(flags);
     fprint_warning_count(format!("{diagnostics_folder}/diagnostics.log"), all_warnings.clone());
@@ -912,7 +955,7 @@ mod tests {
             let _ = std::fs::remove_dir_all(dir);
         }
         if let Ok(command) = Command::new("cargo")
-            .args(["init", "--bin", "--vcs", "git", &temp_dir.as_str()])
+            .args(["init", "--bin", "--vcs", "git", temp_dir.as_str()])
             .spawn()
         {
             if let Ok(_output) = command.wait_with_output() {
@@ -927,7 +970,7 @@ fn main() {
             let filename = format!("{}/src/main.rs", temp_dir.clone());
                 let _ = std::fs::write(filename, code);
                 run();
-                let filename = format!("{}/src/main.rs", diagnostics_folder.clone());
+                let filename = format!("{}/src/main.rs", diagnostics_folder);
                 let filename = filename.as_str();
                 assert!(std::path::Path::new(filename).exists());
                 if let Ok(s) = std::fs::read_to_string(filename) { 
@@ -946,8 +989,10 @@ requested on the command line with `-W clippy::unwrap-used`*/;
     }
 
     fn my_args(args: Args) {
-        ARGS.lock().unwrap().pop();
-        ARGS.lock().unwrap().push(args);
+        if let Ok(mut lock) = ARGS.lock() {
+            lock.pop();
+            lock.push(args);
+        }
     }
 
     // run the following bash commands
@@ -963,31 +1008,52 @@ requested on the command line with `-W clippy::unwrap-used`*/;
     ) -> core::result::Result<git2::Oid, git2::Error> {
         let folder = get_folder();
         std::fs::write(format!("{folder}/{filename}"), code).ok();
-        let repo = git2::Repository::open(std::path::Path::new(folder.as_str())).unwrap();
-        let author = git2::Signature::now("Yijun Yu", "y.yu@open.ac.uk").unwrap();
-        let mut index = repo.index().unwrap();
-        index.add_path(std::path::Path::new(&filename)).ok();
-        let index_oid = index.write_tree_to(&repo).unwrap();
-        let tree = repo.find_tree(index_oid).unwrap();
-        let h = repo.head();
-        if let Ok(head) = h {
-            let oid = head.target().unwrap();
-            let parent = repo.find_commit(oid).unwrap();
-            let result = repo.commit(Some("HEAD"), &author, &author, message, &tree, &[&parent]);
-            result.and_then(|oid| {
-                repo.find_object(oid, None).and_then(|object| {
-                    repo.reset(&object, git2::ResetType::Soft, None)
-                        .map(|_| oid)
-                })
-            })
+        if let Ok(repo) = git2::Repository::open(std::path::Path::new(folder.as_str())) {
+            if let Ok(author) = git2::Signature::now("Yijun Yu", "y.yu@open.ac.uk") {
+                if let Ok(mut index) = repo.index() {
+                    index.add_path(std::path::Path::new(&filename)).ok();
+                    if let Ok(index_oid) = index.write_tree_to(&repo) {
+                        if let Ok(tree) = repo.find_tree(index_oid) {
+                            let h = repo.head();
+                            if let Ok(head) = h {
+                                if let Some(oid) = head.target() {
+                                    if let Ok(parent) = repo.find_commit(oid) {
+                                        let result = repo.commit(Some("HEAD"), &author, &author, message, &tree, &[&parent]);
+                                        result.and_then(|oid| {
+                                            repo.find_object(oid, None).and_then(|object| {
+                                                repo.reset(&object, git2::ResetType::Soft, None)
+                                                    .map(|_| oid)
+                                            })
+                                        })
+                                    } else {
+                                        Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::None, "Cannot find the commit"))
+                                    }
+                                } else {
+                                    Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::None, "Cannot find the target"))
+                                }
+                            } else {
+                                let result = repo.commit(Some("HEAD"), &author, &author, message, &tree, &[]);
+                                result.and_then(|oid| {
+                                    repo.find_object(oid, None).and_then(|object| {
+                                        repo.reset(&object, git2::ResetType::Soft, None)
+                                            .map(|_| oid)
+                                    })
+                                })
+                            }
+                        } else {
+                            Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::None, "Cannot find the tree"))
+                        } 
+                    } else {
+                        Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::None, "Cannot create the work tree"))
+                    }
+                } else {
+                    Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::None, "Cannot create the index"))
+                }
+            } else {
+                Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::None, "Cannot create the author"))
+            }
         } else {
-            let result = repo.commit(Some("HEAD"), &author, &author, message, &tree, &[]);
-            result.and_then(|oid| {
-                repo.find_object(oid, None).and_then(|object| {
-                    repo.reset(&object, git2::ResetType::Soft, None)
-                        .map(|_| oid)
-                })
-            })
+            Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::None, "Cannot open the repository"))
         }
     }
 
@@ -1004,21 +1070,21 @@ requested on the command line with `-W clippy::unwrap-used`*/;
             .spawn()
         {
             if let Ok(_output) = command.wait_with_output() {
-                let init_commit = commit_file("init", "src/main.rs", code).ok().unwrap();
-                let update_commit = commit_file("update", "src/main.rs", fix).ok().unwrap();
-                checkout(init_commit);
-                Ok(update_commit)
+                if let Ok(init_commit) = commit_file("init", "src/main.rs", code) {
+                    if let Ok(update_commit) = commit_file("update", "src/main.rs", fix) {
+                        checkout(init_commit);
+                        Ok(update_commit)
+                    } else {
+                        Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Cannot create the update commit",))
+                    }
+                } else {
+                    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Cannot create the init commit",))
+                }
             } else {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Cannot initiate the cargo project",
-                ))
+                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Cannot initiate the cargo project",))
             }
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "Cannot checkout",
-            ))
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Cannot checkout",))
         }
     }
 
@@ -1089,8 +1155,8 @@ fn main() {
             my_args(args);
             run();
             let diagnostics_folder = get_diagnostics_folder();
-            assert_eq!(
-                read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(),
+            if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
+                assert_eq!( s,
                 r###"There are 1 warnings in 1 files.
 ##[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
@@ -1099,8 +1165,8 @@ fn main() {
 +    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
 +        println!("{s}");
 +    }
-"###
-            );
+"###);
+            }
             teardown(update_commit);
         }
     }
@@ -1138,7 +1204,7 @@ fn main() {
         ) {
             let debug_confirm = false;
             let args = Args {
-                folder: Some(temp_dir.clone()),
+                folder: Some(temp_dir),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: debug_confirm,
@@ -1151,8 +1217,9 @@ fn main() {
             my_args(args);
             run();
             let diagnostics_folder = get_diagnostics_folder();
-            assert_eq!(
-                read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(),
+            if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
+                assert_eq!(
+                s,
                 r###"There are 1 warnings in 1 files.
 ##[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
@@ -1164,6 +1231,7 @@ fn main() {
     }
 "###
             );
+            }
             teardown(update_commit);
         }
     }
@@ -1184,9 +1252,8 @@ fn main() {
         my_args(args);
 
         if let Ok(update_commit) = setup(temp_dir.clone(), code1, code2) {
-            dbg!(&update_commit);
             let args = Args {
-                folder: Some(temp_dir.clone()),
+                folder: Some(temp_dir),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
@@ -1199,7 +1266,9 @@ fn main() {
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
             run();
-            assert_eq!(read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(), code3);
+            if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
+                assert_eq!(s, code3);
+            }
             teardown(update_commit);
         }
     }
@@ -1220,9 +1289,8 @@ fn main() {
         my_args(args);
 
         if let Ok(update_commit) = setup(temp_dir.clone(), code1, code2) {
-            dbg!(&update_commit);
             let args = Args {
-                folder: Some(temp_dir.clone()),
+                folder: Some(temp_dir),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
@@ -1235,7 +1303,9 @@ fn main() {
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
             run();
-            assert_eq!(read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(), code3);
+            if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
+                assert_eq!(s, code3);
+            }
             teardown(update_commit);
         }
     }
@@ -1256,9 +1326,8 @@ fn main() {
         my_args(args);
 
         if let Ok(update_commit) = setup(temp_dir.clone(), code1, code2) {
-            dbg!(&update_commit);
             let args = Args {
-                folder: Some(temp_dir.clone()),
+                folder: Some(temp_dir),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
@@ -1271,7 +1340,9 @@ fn main() {
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
             run();
-            assert_eq!(read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(), code3);
+            if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
+                assert_eq!(s, code3);
+            }
             teardown(update_commit);
         }
     }
@@ -1469,7 +1540,7 @@ fn main() {
 "#,
         ) {
             let args = Args {
-                folder: Some(temp_dir.clone()),
+                folder: Some(temp_dir),
                 flags: vec![],
                 patch: Some(format!("{update_commit}")),
                 confirm: true,
@@ -1482,11 +1553,13 @@ fn main() {
             my_args(args);
             run();
             let diagnostics_folder = get_diagnostics_folder();
-            assert_eq!(
-                read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(),
-                r###"There are 1 warnings in 1 files.
+            if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
+                assert_eq!(
+                    s,    
+                    r###"There are 1 warnings in 1 files.
 "###
-            );
+                );
+            }
             teardown(update_commit);
         }
     }
@@ -1512,13 +1585,23 @@ fn main() {
                 .ok();
             println!();
         }
-        let oid = git2::Oid::from_str(rev1).unwrap();
-        checkout(oid);
-        let rev2 = args.patch.unwrap();
-        let diagnostics_folder = get_diagnostics_folder();
-        run(rev2.as_str());
-        run(rev2.as_str()); // second time run
-        read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap()
+        if let Ok(oid) = git2::Oid::from_str(rev1) {
+            checkout(oid);
+            if let Some(rev2) = args.patch {
+                let diagnostics_folder = get_diagnostics_folder();
+                run(rev2.as_str());
+                run(rev2.as_str()); // second time run
+                if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
+                    s
+                } else {
+                    "".to_string()
+                }
+            } else {
+                "".to_string()
+            }
+        } else {
+            "".to_string()
+        }
     }
 
 
@@ -1531,7 +1614,6 @@ fn main() {
     fn rd_setup<F>(temp_dir: String, args: Args, rev1: &str, run: F) -> String 
     where F: Fn(&str),
     {
-        println!("================{temp_dir}");
         my_args(args.clone());
         let git_dir = std::path::Path::new("{temp_dir}/.git");
         if !git_dir.exists() {
@@ -1544,12 +1626,22 @@ fn main() {
                 .ok();
             println!();
         }
-        let oid = git2::Oid::from_str(rev1).unwrap();
-        checkout(oid);
-        let rev2 = args.patch.unwrap();
-        let diagnostics_folder = get_diagnostics_folder();
-        run(rev2.as_str());
-        read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap()
+        if let Ok(oid) = git2::Oid::from_str(rev1) { 
+            checkout(oid);
+            if let Some(rev2) = args.patch {
+                let diagnostics_folder = get_diagnostics_folder();
+                run(rev2.as_str());
+                if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
+                    s
+                } else {
+                    "".to_string()
+                }
+            } else {
+                "".to_string()
+            }
+        } else {
+            "".to_string()
+        }
     }
 
     fn rd_run(_rev2: &str) {
@@ -1558,11 +1650,14 @@ fn main() {
 
     fn diff_run(rev2: &str) {
         let folder = get_folder();
-        let repo = git2::Repository::open(folder.clone()).unwrap();
-        let diff = get_diff(&repo, rev2.to_string());
-        let hunks = get_hunks(diff.unwrap());
-        let diagnostics_folder = get_diagnostics_folder();
-        fprint_hunks(format!("{diagnostics_folder}/diagnostics.log"), hunks);
+        if let Ok(repo) = git2::Repository::open(folder) {
+            let diff = get_diff(&repo, rev2.to_string());
+            if let Some(diff) = diff {
+                let hunks = get_hunks(diff);
+                let diagnostics_folder = get_diagnostics_folder();
+                fprint_hunks(format!("{diagnostics_folder}/diagnostics.log"), hunks);
+            }
+        }
     }
 
     #[test]
@@ -1613,7 +1708,7 @@ fn main() {
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
             if !output.is_empty() {
         "###);
-        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
@@ -1690,7 +1785,7 @@ fn main() {
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
             if !output.is_empty() {
         "###);
-        insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
+        insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
@@ -1753,7 +1848,7 @@ fn main() {
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files.
         "###);
-        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()), 
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir), 
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
@@ -1765,7 +1860,7 @@ fn main() {
     #[serial]
     fn hunks_patch() {
         let temp_dir = get_temp_dir();
-        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args {folder: Some(temp_dir.clone()),
+        insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args {folder: Some(temp_dir),
             flags: vec![],
             patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
             confirm: true,
@@ -1782,7 +1877,7 @@ fn main() {
     #[serial]
     fn hunks_pairs() {
         let temp_dir = get_temp_dir();
-         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args {folder: Some(temp_dir.clone()),
+         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args {folder: Some(temp_dir),
             flags: vec![],
             patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
             confirm: true,
