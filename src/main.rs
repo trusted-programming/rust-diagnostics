@@ -762,44 +762,48 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
         check_fixed(&mut hunks, new_warnings);
         hunks.iter_mut().for_each(|(k0,v)| {
             let filename = format!("{folder}/{k0}");
-            let source = read_to_string(filename.as_str()).unwrap();
-            let source = source.as_bytes();
-            let p = std::path::Path::new(filename.as_str());
-            let function_items = get_function_items(p).unwrap();
-            v.iter_mut().for_each(|h| {
-                function_items.iter().for_each(|(k, f)| {
-                    let prev_l = i32::try_from(h.old_start_line - 1).unwrap();
-                    let prev_r = i32::try_from(h.old_end_line - 1).unwrap();
-                    if k.start_line <= usize::try_from(prev_l).unwrap()
-                        && usize::try_from(prev_r).unwrap() <= k.end_line
-                    {
-                        if args.location {
-                            let ws = &all_warnings.get(k0).unwrap();
-                            let markedup = &markup_code(source, k, ws.to_vec());
-                            if let Ok(s) = std::str::from_utf8(markedup) {
-                                h.context = s.to_string();
+            if let Ok(source) = read_to_string(filename.as_str()) {
+                let source = source.as_bytes();
+                let p = std::path::Path::new(filename.as_str());
+                let function_items = get_function_items(p).unwrap();
+                v.iter_mut().for_each(|h| {
+                    function_items.iter().for_each(|(k, f)| {
+                        let prev_l = i32::try_from(h.old_start_line - 1).unwrap();
+                        let prev_r = i32::try_from(h.old_end_line - 1).unwrap();
+                        if k.start_line <= usize::try_from(prev_l).unwrap()
+                            && usize::try_from(prev_r).unwrap() <= k.end_line
+                        {
+                            if args.location {
+                                if let Some(ws) = &all_warnings.get(k0) {
+                                    let markedup = &markup_code(source, k, ws.to_vec());
+                                    if let Ok(s) = std::str::from_utf8(markedup) {
+                                        h.context = s.to_string();
+                                    } else {
+                                        h.context = f.to_string();
+                                    }
+                                } else {
+                                    h.context = f.to_string();
+                                }
                             } else {
                                 h.context = f.to_string();
                             }
-                        } else {
-                            h.context = f.to_string();
+                            let n = h.old_start_line - k.start_line - 1;
+                            let m = h.old_end_line - k.start_line;
+                            let lines: Vec<&str> = f.split('\n').collect();
+                            h.new_context = "".to_string();
+                            (0..n).for_each(|i| {
+                                h.new_context.push_str(lines[i]);
+                                h.new_context.push('\n');
+                            });
+                            h.new_context.push_str(h.new_text.as_str());
+                            ((m-1)..lines.len()).for_each(|i| {
+                                h.new_context.push_str(lines[i]);
+                                h.new_context.push('\n');
+                            });
                         }
-                        let n = h.old_start_line - k.start_line - 1;
-                        let m = h.old_end_line - k.start_line;
-                        let lines: Vec<&str> = f.split('\n').collect();
-                        h.new_context = "".to_string();
-                        (0..n).for_each(|i| {
-                            h.new_context.push_str(lines[i]);
-                            h.new_context.push('\n');
-                        });
-                        h.new_context.push_str(h.new_text.as_str());
-                        ((m-1)..lines.len()).for_each(|i| {
-                            h.new_context.push_str(lines[i]);
-                            h.new_context.push('\n');
-                        });
-                    }
+                    });
                 });
-            });
+            } 
         });
         fprint_hunks(format!("{diagnostics_folder}/diagnostics.log"), hunks);
     }
