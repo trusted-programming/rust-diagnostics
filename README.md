@@ -15,7 +15,7 @@ semantics.
 Through additional arguments, this utility also checks how a warning found
 in revision r1 has been manually fixed by a revision r2. 
 
-Currently we integrate the utility with `clippy` and `git-rs`.
+Currently we integrate the utility with `clippy` and `git2-rs`.
 
 ## Installation
 ```bash
@@ -66,8 +66,8 @@ As a result, there is also a new folder `diagnostics` created, with a file `src/
 fn main() {
     let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
 #[Warning(clippy::unwrap_used)
-note: if this value is an `Err`, it will panic
-for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used
+note: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used
+if this value is an `Err`, it will panic
 requested on the command line with `-W clippy::unwrap-used`*/;
     println!("The configuration file is: {s}");
 }
@@ -208,7 +208,7 @@ The pair may be too terse to learn, we use the `--function` option to
 print the function surrounding the patch as its context:
 ```bash
 git checkout $r1
-rust-diagnostics --patch $r2 --confirm --pair [--function | -W]
+rust-diagnostics --patch $r2 --confirm --pair --function
 ```
 
 For example, it will print the following instead:
@@ -227,10 +227,65 @@ fn main() {
 }
 ```
 
+#### Generate marked up context using the `--location` option
+This option could insert the location of warning and its hints of fixing 
+according to `clippy` into the original context.
+```bash
+git checkout $r1
+rust-diagnostics --patch $r2 --confirm --pair --function --location
+```
+For example, it will print the following instead:
+```
+There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+fn main() {
+    let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
+#[Warning(clippy::unwrap_used)
+note: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used
+if this value is an `Err`, it will panic
+requested on the command line with `-W clippy::unwrap-used`*/;
+    println!("{s}");
+}
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+fn main() {
+    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
+        println!("{s}");
+    }
+}
+```
+#### Generate mixed context and patch using the `--mixed` option
+This option could pair up the context with the actual patch.
+```bash
+git checkout $r1
+rust-diagnostics --patch $r2 --confirm --pair --function --location --mixed
+```
+For example, it will print the following instead:
+```
+There are 1 warnings in 1 files.
+#[Warning(clippy::unwrap_used)
+fn main() {
+    let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
+#[Warning(clippy::unwrap_used)
+note: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_used
+if this value is an `Err`, it will panic
+requested on the command line with `-W clippy::unwrap-used`*/;
+    println!("{s}");
+}
+=== 19a3477889393ea2cdd0edcb5e6ab30c ===
+-    let s = std::fs::read_to_string("Cargo.toml").unwrap();
+-    println!("{s}");
++    if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
++        println!("{s}");
++    }
+```
+Note that we don't keep the header because the line numbers are no longer important if we already know where the
+warning is and the inserted markup hints already shifted the original line numbers.
+
 ## Acknowledgement
 
 - Thanks for [David Wood](https://davidtw.co), who offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;
 - Thanks for [Mara Bos](https://github.com/m-ou-se), who provided some hints on how to fix `unwrap()` warnings using `if-let` statements;
 - Thanks for [Amanieu d'Antras](https://github.com/Amanieu), who provided some explanation for the necessity of certain clippy rules in practice.
-- Thanks for [Josh Triplett](https://github.com/joshtriplett), who implemented `git-rs` which wraps the `libgit2` library to use in Rust.
+- Thanks for [Josh Triplett](https://github.com/joshtriplett), who implemented `git2-rs` which wraps the `libgit2` library to use in Rust.
 - Thanks for Dr Chunmiao Li, who implemented `unwrapped_used.txl` refactoring rule to tackle fix the corresponding warning.
+- Thanks for [Dr Nghi Bui](https://github.com/bdqnghi), who suggested an idea to create mixed pairs.
