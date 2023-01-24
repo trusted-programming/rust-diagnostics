@@ -1,4 +1,5 @@
 ## Change Log
+- [x] Print pair pragma with ## so it is easier to differentiate it with the pragma inside warning hints
 - [x] Swap the order of diagnostic folder name from `$id/diagnostics` to `diagnostics/$id`
 - [x] Fix the ordering of diagnostic hints so that the regression test will be repeatable 
 - [x] Add an option `--location` to markup the old_context with the warnings

@@ -167,7 +167,7 @@ that matters to fix the warnings listed in front of the hunks.
 For example, the output will be the same as those in the `git diff` format:
 ```
 There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
 -    let s = std::fs::read_to_string("Cargo.toml").unwrap();
 -    println!("{s}");
@@ -189,7 +189,7 @@ rust-diagnostics --patch $r2 --confirm --pair
 For example, the `diagnostics.log` will contain
 ```
 There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
     println!("{s}");
@@ -214,7 +214,7 @@ rust-diagnostics --patch $r2 --confirm --pair --function
 For example, it will print the following instead:
 ```
 There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
     println!("{s}");
@@ -237,7 +237,7 @@ rust-diagnostics --patch $r2 --confirm --pair --function --location
 For example, it will print the following instead:
 ```
 There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 fn main() {
     let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
 #[Warning(clippy::unwrap_used)
@@ -262,7 +262,7 @@ rust-diagnostics --patch $r2 --confirm --pair --function --location --mixed
 For example, it will print the following instead:
 ```
 There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 fn main() {
     let s = /*#[Warning(clippy::unwrap_used)*/std::fs::read_to_string("Cargo.toml").unwrap()/*
 #[Warning(clippy::unwrap_used)

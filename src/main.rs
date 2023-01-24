@@ -686,7 +686,7 @@ fn add_warnings_to_hunks(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTre
                        && h.old_end_line >= w.start_line
                     {
                         h.n_warnings += 1;
-                        h.warnings = format!("{}{}\n", h.warnings, w.name);
+                        h.warnings = format!("{}#{}\n", h.warnings, w.name);
                     }
                });
             });
@@ -1092,7 +1092,7 @@ fn main() {
             assert_eq!(
                 read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(),
                 r###"There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
 -    let s = std::fs::read_to_string("Cargo.toml").unwrap();
 -    println!("{s}");
@@ -1154,7 +1154,7 @@ fn main() {
             assert_eq!(
                 read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap(),
                 r###"There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
     println!("{s}");
@@ -1296,7 +1296,7 @@ fn main() {
 }
 "#,
             r###"There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 fn main() {
 
 
@@ -1340,7 +1340,7 @@ fn main() {
 }
 "#,
             r###"There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 fn main() {
 
 
@@ -1380,7 +1380,7 @@ fn main() {
 }
 "#,
             r###"There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 fn main() {
 
 
@@ -1421,7 +1421,7 @@ fn main() {
 }
 "#,
             r###"There are 1 warnings in 1 files.
-#[Warning(clippy::unwrap_used)
+##[Warning(clippy::unwrap_used)
 fn main() {
 
 
@@ -1597,7 +1597,7 @@ fn main() {
                 flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
-        #[Warning(clippy::len_zero)
+        ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
         -    if output.len() != 0 {
         +    if !output.is_empty() {
@@ -1607,7 +1607,7 @@ fn main() {
                 flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
-        #[Warning(clippy::len_zero)
+        ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
             if output.len() != 0 {
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
@@ -1618,7 +1618,7 @@ fn main() {
                 flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
-        #[Warning(clippy::len_zero)
+        ##[Warning(clippy::len_zero)
         fn remove_previously_generated_files() {
             let command = Command::new("find")
                 .args(&[".", "-name", "*.rs.1"])
@@ -1674,7 +1674,7 @@ fn main() {
                 flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
-        #[Warning(clippy::len_zero)
+        ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
         -    if output.len() != 0 {
         +    if !output.is_empty() {
@@ -1684,7 +1684,7 @@ fn main() {
                 flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
-        #[Warning(clippy::len_zero)
+        ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
             if output.len() != 0 {
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
@@ -1695,7 +1695,7 @@ fn main() {
                 flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files.
-        #[Warning(clippy::len_zero)
+        ##[Warning(clippy::len_zero)
         fn remove_previously_generated_files() {
             let command = Command::new("find")
                 .args(&[".", "-name", "*.rs.1"])
