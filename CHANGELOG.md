@@ -1,4 +1,5 @@
 ## Change Log
+- [x] Swap the order of diagnostic folder name from `$id/diagnostics` to `diagnostics/$id`
 - [x] Fix the ordering of diagnostic hints so that the regression test will be repeatable 
 - [x] Add an option `--location` to markup the old_context with the warnings
 - [x] Add an option `--mixed` to save the messages into a file in case the information can be useful context

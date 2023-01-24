@@ -201,7 +201,7 @@ fn get_diagnostics_folder() -> String
     let folder = get_folder();
     let mut diagnostics_folder = format!("{folder}/diagnostics");
     if let Some(id) = get_current_id() {
-        diagnostics_folder = format!("{folder}/{id}/diagnostics");
+        diagnostics_folder = format!("{folder}/diagnostics/{id}");
     }
     let p = std::path::Path::new(diagnostics_folder.as_str());
     if ! p.exists() {
@@ -1493,6 +1493,37 @@ fn main() {
     // git checkout $rev1
     // rust-diagnostics --patch $rev2
     // ```
+    fn rd_setup_twice<F>(temp_dir: String, args: Args, rev1: &str, run: F) -> String 
+    where F: Fn(&str),
+    {
+        my_args(args.clone());
+        let git_dir = std::path::Path::new("{temp_dir}/.git");
+        if !git_dir.exists() {
+            let fo = git2::FetchOptions::new();
+            let co = git2::build::CheckoutBuilder::new();
+            git2::build::RepoBuilder::new()
+                .fetch_options(fo)
+                .with_checkout(co)
+                .clone(".git", std::path::Path::new(temp_dir.as_str()))
+                .ok();
+            println!();
+        }
+        let oid = git2::Oid::from_str(rev1).unwrap();
+        checkout(oid);
+        let rev2 = args.patch.unwrap();
+        let diagnostics_folder = get_diagnostics_folder();
+        run(rev2.as_str());
+        run(rev2.as_str()); // second time run
+        read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap()
+    }
+
+
+    // ```bash
+    // git clone .git rd
+    // cd cd
+    // git checkout $rev1
+    // rust-diagnostics --patch $rev2
+    // ```
     fn rd_setup<F>(temp_dir: String, args: Args, rev1: &str, run: F) -> String 
     where F: Fn(&str),
     {
@@ -1629,6 +1660,84 @@ fn main() {
         }
         "###);
     }
+
+    #[test]
+    #[serial]
+    fn twice() {
+        let temp_dir = get_temp_dir();
+        insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
+                patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false},
+                "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
+        There are 30 warnings in 1 files.
+        #[Warning(clippy::len_zero)
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
+        -    if output.len() != 0 {
+        +    if !output.is_empty() {
+        "###);
+        insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
+                patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false},
+                "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
+        There are 30 warnings in 1 files.
+        #[Warning(clippy::len_zero)
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
+            if output.len() != 0 {
+        === 19a3477889393ea2cdd0edcb5e6ab30c ===
+            if !output.is_empty() {
+        "###);
+        insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
+                patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
+                "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
+        There are 30 warnings in 1 files.
+        #[Warning(clippy::len_zero)
+        fn remove_previously_generated_files() {
+            let command = Command::new("find")
+                .args(&[".", "-name", "*.rs.1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if output.len() != 0 {
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(&["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        === 19a3477889393ea2cdd0edcb5e6ab30c ===
+        fn remove_previously_generated_files() {
+            let command = Command::new("find")
+                .args(&[".", "-name", "*.rs.1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output = command
+                .wait_with_output()
+                .expect("failed to aquire programm output").stdout;
+            if !output.is_empty() {
+                println!("Removed previously generated warning files")
+            }
+            String::from_utf8(output).expect("programm output was not valid utf-8").split("\n").for_each(|tmp| {
+                let mut command = Command::new("rm")
+                .args(&["-f", tmp])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+                command.wait().expect("problem with file deletion");
+            });
+        }
+        "###);
+    }
+
 
     #[test]
     #[serial]
