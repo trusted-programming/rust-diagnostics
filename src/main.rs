@@ -1,6 +1,6 @@
 use cargo_metadata::{diagnostic::Diagnostic, Message};
 use once_cell::sync::Lazy;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::{
     collections::BTreeMap,
     fs::read_to_string,
@@ -546,7 +546,7 @@ fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff> {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Hunk {
     patch_text: String, // c.f. git-diff patch
     header: String,    // c.f. header
@@ -794,7 +794,12 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
     let folder = get_folder();
     let diagnostics_folder = get_diagnostics_folder();
     if let Some(id) = &args.patch {
-        if let Ok(repo) = git2::Repository::open(&folder) {
+        let mut hunks = BTreeMap::new();
+        let json_filename = format!("{diagnostics_folder}/{id}.json");
+        if let Ok(json_hunks) = read_to_string(json_filename.as_str()) {
+           hunks = if let Ok(hunks) = serde_json::from_str::<BTreeMap<String,Vec<Hunk>>>(&json_hunks) { hunks } else { hunks };
+           fprint_hunks(format!("{diagnostics_folder}/diagnostics.log"), hunks);
+        } else if let Ok(repo) = git2::Repository::open(&folder) {
             if let Some(diff) = get_diff(&repo, id.to_string()) {
                 let mut hunks = get_hunks(diff);
                 add_warnings_to_hunks(&mut hunks, all_warnings.clone());
@@ -846,8 +851,17 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
                         }
                     } 
                 });
-                fprint_hunks(format!("{diagnostics_folder}/diagnostics.log"), hunks);
+                if open_file_to_write(json_filename.clone()).is_ok() {
+                    if let Ok(mut file) = open_file_to_append(json_filename) {
+                        if let Ok(msg) = serde_json::to_string(&hunks) {
+                            file.write_all(msg.as_bytes()).ok();
+                        }
+                        fprint_hunks(format!("{diagnostics_folder}/diagnostics.log"), hunks);
+                    }
+                }
             }
+        } else {
+            println!("========================cannot find {json_filename} nor .git repository");
         }
     }
 }

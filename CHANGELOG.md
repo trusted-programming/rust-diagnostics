@@ -1,5 +1,5 @@
 ## Change Log
-- [ ] Cache computed data by serialized/deserialize diff hunks
+- [x] Cache computed data by serialized/deserialize diff hunks
 - [x] Print pair pragma with ## so it is easier to differentiate it with the pragma inside warning hints
 - [x] Swap the order of diagnostic folder name from `$id/diagnostics` to `diagnostics/$id`
 - [x] Fix the ordering of diagnostic hints so that the regression test will be repeatable 
