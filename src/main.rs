@@ -219,12 +219,7 @@ fn to_diagnostic(map: &mut BTreeMap<String, Vec<Warning>>, args: Vec<String>) {
     let json_filename = format!("{diagnostics_folder}/diagnostics.json");
     let p = std::path::Path::new(json_filename.as_str());
     if !p.exists() {
-        let mut cargo = "cargo";
-        if std::path::Path::new("x.py").exists() {
-            cargo = "./x.py";
-        } else if std::path::Path::new("miri").exists() {
-            cargo = "./miri";
-        }
+        let cargo = get_cargo();
         if let Ok(mut command) = Command::new(cargo)
             .args(args)
             .stdout(Stdio::piped())
@@ -287,6 +282,16 @@ fn to_diagnostic(map: &mut BTreeMap<String, Vec<Warning>>, args: Vec<String>) {
             }
         }
     }
+}
+
+fn get_cargo() -> &'static str {
+    let mut cargo = "cargo";
+    if std::path::Path::new("x.py").exists() {
+        cargo = "./x.py";
+    } else if std::path::Path::new("miri").exists() {
+        cargo = "./miri";
+    }
+    cargo
 }
 
 fn get_folder() -> String {
@@ -387,6 +392,35 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
         }
     }
     map
+}
+
+fn count(map: BTreeMap<String, Vec<Warning>>) -> usize
+{
+    let mut sum: usize = 0;
+    map.iter().for_each(|(k,v)|{
+        sum = sum.saturating_add(v.len());
+    });
+    sum
+}
+
+fn clippy_fix() -> usize
+{
+    let folder = get_folder();
+    let manifest = format!("{folder}/Cargo.toml");
+    let args = vec![
+        "clippy".to_string(),
+        "--message-format=json".to_string(),
+        "--manifest-path".to_string(), 
+        manifest,
+         "--fix".to_string(),
+        "--allow-dirty".to_string(),
+        "--allow-no-vcs".to_string(),
+        "--broken-code".to_string(),
+        "--".to_string(),
+    ];
+    let mut map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
+    to_diagnostic(&mut map, args);
+    count(map)
 }
 
 // run the following bash commands
@@ -502,8 +536,10 @@ fn fprint_warning_count(file: String, all_warnings: BTreeMap<String, Vec<Warning
     all_warnings.iter().for_each(|(_k, v)| {
         count = count.saturating_add(v.len());
     });
+    let remained = clippy_fix();
     if let Ok(mut file) = open_file_to_write(file) {
-        file.write_all(format!("There are {} warnings in {} files.\n", count, all_warnings.len()).as_bytes()).ok();
+        file.write_all(format!("There are {} warnings in {} files, {} has been fixed.\n", 
+                               count, all_warnings.len(), count.saturating_sub(remained)).as_bytes()).ok();
     } 
 }
 
@@ -1177,7 +1213,7 @@ fn main() {
             let diagnostics_folder = get_diagnostics_folder();
             if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
                 assert_eq!( s,
-                r###"There are 1 warnings in 1 files.
+                r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
 -    let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -1240,7 +1276,7 @@ fn main() {
             if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
                 assert_eq!(
                 s,
-                r###"There are 1 warnings in 1 files.
+                r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
 @@ -3,2 +3,3 @@ fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
@@ -1386,7 +1422,7 @@ fn main() {
     }
 }
 "#,
-            r###"There are 1 warnings in 1 files.
+            r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
 fn main() {
 
@@ -1430,7 +1466,7 @@ fn main() {
     }
 }
 "#,
-            r###"There are 1 warnings in 1 files.
+            r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
 fn main() {
 
@@ -1470,7 +1506,7 @@ fn main() {
     }
 }
 "#,
-            r###"There are 1 warnings in 1 files.
+            r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
 fn main() {
 
@@ -1511,7 +1547,7 @@ fn main() {
     }
 }
 "#,
-            r###"There are 1 warnings in 1 files.
+            r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
 fn main() {
 
@@ -1576,7 +1612,7 @@ fn main() {
             if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
                 assert_eq!(
                     s,    
-                    r###"There are 1 warnings in 1 files.
+                    r###"There are 1 warnings in 1 files, 0 has been fixed.
 "###
                 );
             }
@@ -1699,7 +1735,7 @@ fn main() {
                 "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
                 rd_run
             ),
-            "There are 30 warnings in 1 files.\n"
+            "There are 30 warnings in 1 files, 0 has been fixed.\n"
         );
     }
 
@@ -1711,7 +1747,7 @@ fn main() {
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files.
+        There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
         -    if output.len() != 0 {
@@ -1721,7 +1757,7 @@ fn main() {
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files.
+        There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
             if output.len() != 0 {
@@ -1732,7 +1768,7 @@ fn main() {
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files.
+        There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         fn remove_previously_generated_files() {
             let command = Command::new("find")
@@ -1788,7 +1824,7 @@ fn main() {
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files.
+        There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
         -    if output.len() != 0 {
@@ -1798,7 +1834,7 @@ fn main() {
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files.
+        There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
             if output.len() != 0 {
@@ -1809,7 +1845,7 @@ fn main() {
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files.
+        There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         fn remove_previously_generated_files() {
             let command = Command::new("find")
@@ -1866,13 +1902,13 @@ fn main() {
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
                 flags: vec![], confirm: false, pair: false, function: false, single: true,  location: false, mixed: false},
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
-        There are 27 warnings in 1 files.
+        There are 27 warnings in 1 files, 0 has been fixed.
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir), 
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
                 flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
-        There are 27 warnings in 1 files.
+        There are 27 warnings in 1 files, 0 has been fixed.
         "###);
     }
 
