@@ -397,7 +397,7 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
 fn count(map: BTreeMap<String, Vec<Warning>>) -> usize
 {
     let mut sum: usize = 0;
-    map.iter().for_each(|(k,v)|{
+    map.iter().for_each(|(_,v)|{
         sum = sum.saturating_add(v.len());
     });
     sum
