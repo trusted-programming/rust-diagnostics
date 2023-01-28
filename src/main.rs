@@ -56,7 +56,7 @@ static ARGS: Mutex<Vec<Args>> = Mutex::new(vec![]);
 
 fn get_args() -> Vec<Args> {
     set_args();
-    return Result::unwrap(ARGS.lock()).to_vec()
+    Result::unwrap(ARGS.lock()).to_vec()
 }
 
 fn set_args() {
@@ -114,7 +114,7 @@ fn markup(source: &[u8], map: Vec<Warning>) -> Vec<u8> {
         }
         output.push(*c);
     }
-    return output
+    output
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -160,12 +160,12 @@ fn splitup(source: String) -> anyhow::Result<BTreeMap<LineRange, String>> {
             let mut cursor = QueryCursor::new();
             let extracted = cursor
                 .matches(&query, tree.root_node(), source.as_bytes())
-                .flat_map(|query_match| return query_match.captures)
+                .flat_map(|query_match| query_match.captures)
                 .map(|capture| {
                     if let Ok(idx) = usize::try_from(capture.index) {
                         let name = &captures[idx];
                         let node = capture.node;
-                        return Ok(ExtractedNode {
+                        Ok(ExtractedNode {
                             name,
                             start_byte: node.start_byte(),
                             start_line: node.start_position().row,
@@ -173,7 +173,7 @@ fn splitup(source: String) -> anyhow::Result<BTreeMap<LineRange, String>> {
                             end_line: node.end_position().row,
                         })
                     } else {
-                        return Ok(ExtractedNode {
+                        Ok(ExtractedNode {
                             name: "",
                             start_byte: 0,
                             start_line: 0,
@@ -196,7 +196,7 @@ fn splitup(source: String) -> anyhow::Result<BTreeMap<LineRange, String>> {
             }
         }
     }
-    return Ok(output)
+    Ok(output)
 }
 
 fn get_diagnostics_folder() -> String
@@ -210,7 +210,7 @@ fn get_diagnostics_folder() -> String
     if ! p.exists() {
         std::fs::create_dir_all(p).ok();
     }
-    return diagnostics_folder
+    diagnostics_folder
 }
 
 fn to_diagnostic(map: &mut BTreeMap<String, Vec<Warning>>, args: Vec<String>) {
@@ -294,7 +294,7 @@ fn get_cargo() -> &'static str {
     } else if std::path::Path::new("miri").exists() {
         cargo = "./miri";
     }
-    return cargo
+    cargo
 }
 
 fn get_folder() -> String {
@@ -304,7 +304,7 @@ fn get_folder() -> String {
     if let Some(f) = args.folder.clone() {
         folder = f;
     }
-    return folder
+    folder
 }
 
 // mark up the given code of $filename within a line range $lr with the warnings $ws
@@ -348,7 +348,7 @@ fn markup_code(source: &[u8], lr: &LineRange, ws: Vec<Warning>) -> Vec<u8>
             num_lines = num_lines.saturating_add(1);
         }
     }
-    return output
+    output
 }
 
 // markup all warnings into diagnostics
@@ -394,16 +394,16 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
             }
         }
     }
-    return map
+    map
 }
 
 fn count(map: BTreeMap<String, Vec<Warning>>) -> usize
 {
     let mut sum: usize = 0;
-    for (_,v) in &map {
+    map.iter().for_each(|(_,v)| {
         sum = sum.saturating_add(v.len());
-    }
-    return sum
+    });
+    sum
 }
 
 fn clippy_fix() -> usize
@@ -424,7 +424,7 @@ fn clippy_fix() -> usize
     ];
     let mut map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
     to_diagnostic(&mut map, args);
-    return count(map)
+    count(map)
 }
 
 // run the following bash commands
@@ -496,7 +496,7 @@ fn get_flags() -> Vec<String> {
                 "get_last_with_len".to_string(),
                 "get_unwrap".to_string(),
                 "implicit_clone".to_string(),
-                "implicit_return".to_string(),
+                // "implicit_return".to_string(),
                 "implicit_saturating_add".to_string(),
                 "implicit_saturating_sub".to_string(),
                 "inconsistent_struct_constructor".to_string(),
@@ -544,7 +544,7 @@ fn get_flags() -> Vec<String> {
                 "needless_arbitrary_self_type".to_string(),
                 "needless_bool".to_string(),
                 "needless_collect".to_string(),
-                "needless_for_each".to_string(),
+                // "needless_for_each".to_string(),
                 "needless_late_init".to_string(),
                 "needless_match".to_string(),
                 "needless_option_as_deref".to_string(),
@@ -666,18 +666,18 @@ fn get_flags() -> Vec<String> {
             ];
         }
     }
-    return flags
+    flags
 }
 
 fn open_file_to_append(file: String) -> Result<std::fs::File, String> {
     if ! std::path::Path::new(&file).exists() {
-        return open_file_to_write(file)
+        open_file_to_write(file)
     } else {
         let mut binding = std::fs::OpenOptions::new();
         let option = binding.create_new(false).write(true).append(true);
         match option.open(file) {
-            Err(e) => return Err(format!("{e}")),
-            Ok(option) => return Ok(option),
+            Err(e) => Err(format!("{e}")),
+            Ok(option) => Ok(option),
         }
     }
 }
@@ -689,20 +689,18 @@ fn open_file_to_write(file: String) -> Result<std::fs::File, String> {
     let mut binding = std::fs::OpenOptions::new();
     let option = binding.create_new(true).write(true).append(false);
     match option.open(file) {
-            Err(e) => return Err(format!("{e}")),
-            Ok(option) => return Ok(option),
+            Err(e) => Err(format!("{e}")),
+            Ok(option) => Ok(option),
     }
  }
 
 fn fprint_warning_count(file: String, all_warnings: BTreeMap<String, Vec<Warning>>) {
     let mut count: usize = 0;
-    for (_k, v) in &all_warnings {
+    all_warnings.iter().for_each(|(_k, v)| {
         count = count.saturating_add(v.len());
-    }
+    });
     let remained = clippy_fix();
     if let Ok(mut file) = open_file_to_write(file) {
-        println!("=========== There are {} warnings in {} files, {} has been fixed.\n", 
-                               count, all_warnings.len(), count.saturating_sub(remained));
         file.write_all(format!("There are {} warnings in {} files, {} has been fixed.\n", 
                                count, all_warnings.len(), count.saturating_sub(remained)).as_bytes()).ok();
     } 
@@ -712,12 +710,12 @@ fn get_current_id() -> Option<git2::Oid> {
     let folder = get_folder();
     if let Ok(repo) = git2::Repository::open(folder) {
         if let Ok(x) = repo.head() {
-            return x.target()
+            x.target()
         } else {
-            return None
+            None
         }
     } else {
-        return None
+        None
     }
 }
 
@@ -732,24 +730,24 @@ fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff> {
                         let mut diffopts2 = git2::DiffOptions::new();
                         diffopts2.context_lines(0);
                         if let Ok(diff) = repo.diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2)) {
-                            return Some(diff)
+                            Some(diff)
                         } else {
-                            return None
+                            None
                         }
                     } else {
-                        return None
+                        None
                     }
                 } else {
-                    return None
+                    None
                 }
             } else {
-                return None
+                None
             }
         } else {
-            return None
+            None
         }
     } else {
-        return None
+        None
     }
 }
 
@@ -769,7 +767,7 @@ struct Hunk {
     n_warnings: u32, // the number of related warning(s) in currenet version
     fixed: bool, // whether the related hunk will be fixed by the new version
 }
-static EMPTY_STRING: Lazy<String> = Lazy::new(|| String::new());
+static EMPTY_STRING: Lazy<String> = Lazy::new(String::new);
 
 impl std::fmt::Display for Hunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -779,26 +777,26 @@ impl std::fmt::Display for Hunk {
             if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
                 if args.function {
                     if !args.mixed {
-                        return write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.new_context)
                     } else if args.location {
-                        return write!(f, "{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                        write!(f, "{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.patch_text)
                     } else {
-                        return write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.patch_text)
                     }
                 } else if args.pair {
-                    return write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                    write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.header, self.old_text, self.new_text)
                 } else {
-                    return write!(f, "{}{}{}", self.warnings, self.header, self.patch_text)
+                    write!(f, "{}{}{}", self.warnings, self.header, self.patch_text)
                 }
             } else { // no warning or more than one warnings
-                return write!(f, "")
+                write!(f, "")
             }
         } else { // not fixed
-            return write!(f, "")
+            write!(f, "")
         }
     }
 }
@@ -806,20 +804,20 @@ impl std::fmt::Display for Hunk {
 fn fprint_hunks(file: String, map: BTreeMap<String, Vec<Hunk>>) 
 {
     if let Ok(mut file) = open_file_to_append(file) {
-        for (_, v) in &map {
+        map.iter().for_each(|(_, v)| {
             for h in v.iter() {
                 file.write_all(format!("{h}").as_bytes()).ok();
             }
-        }
+        });
     }
 }
 
 fn u32_to_usize(x: u32) -> usize
 {
     if let Ok(y) = usize::try_from(x) {
-        return y
+        y
     } else {
-        return 0
+        0
     }
 }
 
@@ -909,12 +907,12 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
                 }
             }
         } 
-        return true
+        true
     })
     .ok();
     hunks.push(cur_hunk);
     map.insert(filename, hunks.clone());
-    return map
+    map
 }
 
 // This function associate the warnings to the hunks when they overlap.
@@ -951,18 +949,18 @@ fn get_all_new_warnings() -> BTreeMap<String, Vec<Warning>>
                     checkout(oid);
                     let all_new_warnings = diagnose_all_warnings(flags);
                     checkout(old_id);
-                    return all_new_warnings
+                    all_new_warnings
                 } else {
-                    return map
+                    map
                 }
             } else {
-                return map
+                map
             }
         } else {
-            return map
+            map
         }
     } else {
-        return map
+        map
     }
 }
 
@@ -1012,7 +1010,7 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
                 add_warnings_to_hunks(&mut hunks, all_warnings.clone());
                 let new_warnings = get_all_new_warnings();
                 check_fixed(&mut hunks, new_warnings);
-                for (k0,v) in hunks.iter_mut() {
+                for (k0,v) in &mut hunks {
                     let filename = format!("{folder}/{k0}");
                     if let Ok(source) = read_to_string(filename.as_str()) {
                         let source = source.as_bytes();
@@ -1084,10 +1082,10 @@ fn run() {
 
 fn get_function_items(p: &std::path::Path) -> Result<BTreeMap<LineRange, String>, anyhow::Error> {
     if let Ok(s) = read_to_string(p) {
-        return splitup(s)
+        splitup(s)
     } else {
         let map: BTreeMap<LineRange, String> = BTreeMap::new();
-        return Ok(map)
+        Ok(map)
     }
 }
 
@@ -1101,14 +1099,14 @@ fn sub_messages(children: &[Diagnostic]) -> String {
         .iter()
         .map(|x| {
             if let Some(rendered) = &x.rendered {
-                return format!("{}: {}", &x.message, &rendered)
+                format!("{}: {}", &x.message, &rendered)
             } else {
                 x.message.clone()
             }
         })
         .collect::<Vec<String>>();
     v.sort();
-    return v.join("\n")
+    v.join("\n")
 }
 
 fn remove_a_file(tmp: &str) {
@@ -1153,7 +1151,7 @@ mod tests {
 
     fn get_temp_dir() -> String 
     {
-        return format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_")
+        format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_")
     }
 
     #[test]
@@ -1828,13 +1826,13 @@ fn main() {
                 if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
                     s
                 } else {
-                    return String::new()
+                    String::new()
                 }
             } else {
-                return String::new()
+                String::new()
             }
         } else {
-            return String::new()
+            String::new()
         }
     }
 
@@ -1868,13 +1866,13 @@ fn main() {
                 if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
                     s
                 } else {
-                    return String::new()
+                    String::new()
                 }
             } else {
-                return String::new()
+                String::new()
             }
         } else {
-            return String::new()
+            String::new()
         }
     }
 

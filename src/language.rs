@@ -15,13 +15,13 @@ impl Language {
     pub fn language(&self) -> tree_sitter::Language {
         unsafe {
             match self {
-                Self::Rust => return tree_sitter_rust(),
+                Self::Rust => tree_sitter_rust(),
             }
         }
     }
 
     pub fn parse_query(&self, raw: &str) -> Result<tree_sitter::Query> {
-        return tree_sitter::Query::new(self.language(), raw).map_err(|err| anyhow!("{}", err))
+        tree_sitter::Query::new(self.language(), raw).map_err(|err| anyhow!("{}", err))
     }
 }
 
@@ -36,7 +36,7 @@ impl FromStr for Language {
                 s,
                 Self::all()
                     .into_iter()
-                    .map(|l| return l.to_string())
+                    .map(|l| l.to_string())
                     .collect::<Vec<String>>()
                     .join(", ")
             ),
@@ -47,7 +47,7 @@ impl FromStr for Language {
 impl Display for Language {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Self::Rust => return f.write_str("rust"),
+            Self::Rust => f.write_str("rust"),
         }
     }
 }
