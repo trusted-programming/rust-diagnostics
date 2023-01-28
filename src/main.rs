@@ -47,13 +47,16 @@ struct Args {
     #[structopt(name = "mixed", long)]
     /// markup the function with exact warning, and print context => patch_text
     mixed: bool,
+    #[structopt(name = "fix", long)]
+    /// check the machine applicable rules only
+    fix: bool,
 }
 
 static ARGS: Mutex<Vec<Args>> = Mutex::new(vec![]);
 
 fn get_args() -> Vec<Args> {
     set_args();
-    Result::unwrap(ARGS.lock()).to_vec()
+    return Result::unwrap(ARGS.lock()).to_vec()
 }
 
 fn set_args() {
@@ -111,7 +114,7 @@ fn markup(source: &[u8], map: Vec<Warning>) -> Vec<u8> {
         }
         output.push(*c);
     }
-    output
+    return output
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -157,12 +160,12 @@ fn splitup(source: String) -> anyhow::Result<BTreeMap<LineRange, String>> {
             let mut cursor = QueryCursor::new();
             let extracted = cursor
                 .matches(&query, tree.root_node(), source.as_bytes())
-                .flat_map(|query_match| query_match.captures)
+                .flat_map(|query_match| return query_match.captures)
                 .map(|capture| {
                     if let Ok(idx) = usize::try_from(capture.index) {
                         let name = &captures[idx];
                         let node = capture.node;
-                        Ok(ExtractedNode {
+                        return Ok(ExtractedNode {
                             name,
                             start_byte: node.start_byte(),
                             start_line: node.start_position().row,
@@ -170,7 +173,7 @@ fn splitup(source: String) -> anyhow::Result<BTreeMap<LineRange, String>> {
                             end_line: node.end_position().row,
                         })
                     } else {
-                        Ok(ExtractedNode {
+                        return Ok(ExtractedNode {
                             name: "",
                             start_byte: 0,
                             start_line: 0,
@@ -193,7 +196,7 @@ fn splitup(source: String) -> anyhow::Result<BTreeMap<LineRange, String>> {
             }
         }
     }
-    Ok(output)
+    return Ok(output)
 }
 
 fn get_diagnostics_folder() -> String
@@ -207,7 +210,7 @@ fn get_diagnostics_folder() -> String
     if ! p.exists() {
         std::fs::create_dir_all(p).ok();
     }
-    diagnostics_folder
+    return diagnostics_folder
 }
 
 fn to_diagnostic(map: &mut BTreeMap<String, Vec<Warning>>, args: Vec<String>) {
@@ -291,7 +294,7 @@ fn get_cargo() -> &'static str {
     } else if std::path::Path::new("miri").exists() {
         cargo = "./miri";
     }
-    cargo
+    return cargo
 }
 
 fn get_folder() -> String {
@@ -301,7 +304,7 @@ fn get_folder() -> String {
     if let Some(f) = args.folder.clone() {
         folder = f;
     }
-    folder
+    return folder
 }
 
 // mark up the given code of $filename within a line range $lr with the warnings $ws
@@ -345,7 +348,7 @@ fn markup_code(source: &[u8], lr: &LineRange, ws: Vec<Warning>) -> Vec<u8>
             num_lines = num_lines.saturating_add(1);
         }
     }
-    output
+    return output
 }
 
 // markup all warnings into diagnostics
@@ -370,7 +373,7 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
         for file in map.keys() {
             if let Ok(source) = read_to_string(format!("{folder}/{file}")) {
                 if let Some(v) = map.get(file) {
-                    let markedup = &markup(source.as_bytes(), v.to_vec());
+                    let markedup = &markup(source.as_bytes(), v.clone());
                     if let Ok(s) = std::str::from_utf8(markedup) {
                         markup_map.insert(file.to_string(), s.to_string());
                     }
@@ -391,16 +394,16 @@ fn diagnose_all_warnings(flags: Vec<String>) -> BTreeMap<String, Vec<Warning>> {
             }
         }
     }
-    map
+    return map
 }
 
 fn count(map: BTreeMap<String, Vec<Warning>>) -> usize
 {
     let mut sum: usize = 0;
-    map.iter().for_each(|(_,v)|{
+    for (_,v) in &map {
         sum = sum.saturating_add(v.len());
-    });
-    sum
+    }
+    return sum
 }
 
 fn clippy_fix() -> usize
@@ -413,7 +416,7 @@ fn clippy_fix() -> usize
         "--message-format=json".to_string(),
         "--manifest-path".to_string(), 
         manifest,
-         "--fix".to_string(),
+        "--fix".to_string(),
         "--allow-dirty".to_string(),
         "--allow-no-vcs".to_string(),
         "--broken-code".to_string(),
@@ -421,7 +424,7 @@ fn clippy_fix() -> usize
     ];
     let mut map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
     to_diagnostic(&mut map, args);
-    count(map)
+    return count(map)
 }
 
 // run the following bash commands
@@ -451,228 +454,230 @@ fn get_flags() -> Vec<String> {
     let args = &v[0];
     let mut flags = args.flags.clone();
     if flags.is_empty() {
-        flags = vec![
-            "ptr_arg".to_string(),
-            "too_many_arguments".to_string(),
-            "missing_errors_doc".to_string(),
-            "missing_panics_doc".to_string(),
-            "await_holding_lock".to_string(),
-            "await_holding_refcell_ref".to_string(),
-            "assertions_on_constants".to_string(),
-            "large_stack_arrays".to_string(),
-            "match_bool".to_string(),
-            "needless_bitwise_bool".to_string(),
-            "empty_enum".to_string(),
-            "empty_enum".to_string(),
-            "enum_clike_unportable_variant".to_string(),
-            "enum_glob_use".to_string(),
-            "enum_glob_use".to_string(),
-            "exhaustive_enums".to_string(),
-            "cast_precision_loss".to_string(),
-            "float_arithmetic".to_string(),
-            "float_cmp".to_string(),
-            "float_cmp_const".to_string(),
-            "imprecise_flops".to_string(),
-            "suboptimal_flops".to_string(),
-            "as_conversions".to_string(),
-            "cast_lossless".to_string(),
-            "cast_possible_truncation".to_string(),
-            "cast_possible_wrap".to_string(),
-            "cast_precision_loss".to_string(),
-            "ptr_as_ptr".to_string(),
-            "default_numeric_fallback".to_string(),
-            "checked_conversions".to_string(),
-            "integer_arithmetic".to_string(),
-            "cast_sign_loss".to_string(),
-            "modulo_arithmetic".to_string(),
-            "exhaustive_structs".to_string(),
-            "struct_excessive_bools".to_string(),
-            "unwrap_used".to_string(),
-            "expect_used".to_string(),
-            "expect_fun_call".to_string(),
-            "large_types_passed_by_value".to_string(),
-            "fn_params_excessive_bools".to_string(),
-            "trivially_copy_pass_by_ref".to_string(),
-            "inline_always".to_string(),
-            "inefficient_to_string".to_string(),
-            "dbg_macro".to_string(),
-            "wildcard_imports".to_string(),
-            "self_named_module_files".to_string(),
-            "mod_module_files".to_string(),
-            "disallowed_methods".to_string(),
-            "disallowed_script_idents".to_string(),
-            "disallowed_types".to_string(),
-            /*
-            // all clippy rules that are either inplaceholder or machine applicable 
-            "assertions_on_result_states".to_string(),
-            "bind_instead_of_map".to_string(),
-            "blocks_in_if_conditions".to_string(),
-            "bool_to_int_with_if".to_string(),
-            "borrow_as_ptr".to_string(),
-            "borrow_deref_ref".to_string(),
-            "borrowed_box".to_string(),
-            "box_default".to_string(),
-            "bytes_count_to_len".to_string(),
-            "bytes_nth".to_string(),
-            "cast_abs_to_unsigned".to_string(),
-            "cast_lossless".to_string(),
-            "cast_slice_different_sizes".to_string(),
-            "cast_slice_from_raw_parts".to_string(),
-            "char_lit_as_u8".to_string(),
-            "cloned_instead_of_copied".to_string(),
-            "clone_on_copy".to_string(),
-            "collapsible_if".to_string(),
-            "collapsible_str_replace".to_string(),
-            "crate_in_macro_def".to_string(),
-            "dbg_macro".to_string(),
-            "default_instead_of_iter_empty".to_string(),
-            "derivable_impls".to_string(),
-            "equatable_if_let".to_string(),
-            "err_expect".to_string(),
-            "expect_fun_call".to_string(),
-            "explicit_into_iter_loop".to_string(),
-            "explicit_iter_loop".to_string(),
-            "explicit_write".to_string(),
-            "extend_with_drain".to_string(),
-            "filter_map_identity".to_string(),
-            "filter_map_next".to_string(),
-            "filter_next".to_string(),
-            "flat_map_identity".to_string(),
-            "flat_map_option".to_string(),
-            "from_over_into".to_string(),
-            "from_str_radix_10".to_string(),
-            "get_last_with_len".to_string(),
-            "get_unwrap".to_string(),
-            "implicit_clone".to_string(),
-            "implicit_return".to_string(),
-            "implicit_saturating_add".to_string(),
-            "implicit_saturating_sub".to_string(),
-            "inconsistent_struct_constructor".to_string(),
-            "inefficient_to_string".to_string(),
-            "infallible_destructuring_match".to_string(),
-            "init_numbered_fields".to_string(),
-            "inline_fn_without_body".to_string(),
-            "into_iter_on_ref".to_string(),
-            "int_plus_one".to_string(),
-            "is_digit_ascii_radix".to_string(),
-            "iter_cloned_collect".to_string(),
-            "iter_count".to_string(),
-            "iter_kv_map".to_string(),
-            "iter_next_slice".to_string(),
-            "iter_nth_zero".to_string(),
-            "iter_overeager_cloned".to_string(),
-            "iter_skip_next".to_string(),
-            "large_const_arrays".to_string(),
-            "len_zero".to_string(),
-            "let_unit_value".to_string(),
-            "manual_assert".to_string(),
-            "manual_async_fn".to_string(),
-            "manual_bits".to_string(),
-            "manual_find".to_string(),
-            "manual_is_ascii_check".to_string(),
-            "manual_let_else".to_string(),
-            "manual_ok_or".to_string(),
-            "manual_rem_euclid".to_string(),
-            "manual_retain".to_string(),
-            "manual_saturating_arithmetic".to_string(),
-            "manual_string_new".to_string(),
-            "manual_str_repeat".to_string(),
-            "manual_unwrap_or".to_string(),
-            "map_clone".to_string(),
-            "map_collect_result_unit".to_string(),
-            "map_flatten".to_string(),
-            "map_identity".to_string(),
-            "map_unwrap_or".to_string(),
-            "match_as_ref".to_string(),
-            "match_bool".to_string(),
-            "match_result_ok".to_string(),
-            "match_single_binding".to_string(),
-            "match_str_case_mismatch".to_string(),
-            "missing_spin_loop".to_string(),
-            "needless_arbitrary_self_type".to_string(),
-            "needless_bool".to_string(),
-            "needless_collect".to_string(),
-            "needless_for_each".to_string(),
-            "needless_late_init".to_string(),
-            "needless_match".to_string(),
-            "needless_option_as_deref".to_string(),
-            "needless_option_take".to_string(),
-            "needless_parens_on_range_literals".to_string(),
-            "needless_question_mark".to_string(),
-            "neg_multiply".to_string(),
-            "no_effect".to_string(),
-            "non_octal_unix_permissions".to_string(),
-            "nonstandard_macro_braces".to_string(),
-            "obfuscated_if_else".to_string(),
-            "option_as_ref_deref".to_string(),
-            "option_map_or_none".to_string(),
-            "map_unwrap_or".to_string(),
-            "or_fun_call".to_string(),
-            "or_then_unwrap".to_string(),
-            "partialeq_to_none".to_string(),
-            "path_buf_push_overwrite".to_string(),
-            "precedence".to_string(),
-            "ptr_as_ptr".to_string(),
-            "ptr_offset_with_cast".to_string(),
-            "question_mark".to_string(),
-            "rc_clone_in_vec_init".to_string(),
-            "redundant_clone".to_string(),
-            "redundant_closure_call".to_string(),
-            "redundant_field_names".to_string(),
-            "redundant_pattern".to_string(),
-            "redundant_pub_crate".to_string(),
-            "redundant_slicing".to_string(),
-            "redundant_static_lifetimes".to_string(),
-            "repeat_once".to_string(),
-            "search_is_some".to_string(),
-            "seek_from_current".to_string(),
-            "seek_to_start_instead_of_rewind".to_string(),
-            "single_char_pattern".to_string(),
-            "single_component_path_imports".to_string(),
-            "single_element_loop".to_string(),
-            "single_match".to_string(),
-            "stable_sort_primitive".to_string(),
-            "strlen_on_c_strings".to_string(),
-            "suspicious_operation_groupings".to_string(),
-            "swap_ptr_to_ref".to_string(),
-            "to_digit_is_some".to_string(),
-            "transmute_ptr_to_ref".to_string(),
-            "transmutes_expressible_as_ptr_casts".to_string(),
-            "try_err".to_string(),
-            "unit_arg".to_string(),
-            "unnecessary_cast".to_string(),
-            "unnecessary_fold".to_string(),
-            "unnecessary_join".to_string(),
-            "unnecessary_owned_empty_strings".to_string(),
-            "unnecessary_sort_by".to_string(),
-            "unnecessary_to_owned".to_string(),
-            "unneeded_wildcard_pattern".to_string(),
-            "unnested_or_patterns".to_string(),
-            "unused_rounding".to_string(),
-            "unused_unit".to_string(),
-            "unwrap_or_else_default".to_string(),
-            "useless_asref".to_string(),
-            "use_self".to_string(),
-            "vec_box".to_string(),
-            "vec_init_then_push".to_string(),
-            "while_let_loop".to_string(),
-            "while_let_on_iterator".to_string(),
-            "wildcard_imports".to_string(),
-            */
-        ];
+        if args.fix { // clippy rules that are machine applicable 
+            flags = vec![
+                "assertions_on_result_states".to_string(),
+                "bind_instead_of_map".to_string(),
+                "blocks_in_if_conditions".to_string(),
+                "bool_to_int_with_if".to_string(),
+                "borrow_as_ptr".to_string(),
+                "borrow_deref_ref".to_string(),
+                "borrowed_box".to_string(),
+                "box_default".to_string(),
+                "bytes_count_to_len".to_string(),
+                "bytes_nth".to_string(),
+                "cast_abs_to_unsigned".to_string(),
+                "cast_lossless".to_string(),
+                "cast_slice_different_sizes".to_string(),
+                "cast_slice_from_raw_parts".to_string(),
+                "char_lit_as_u8".to_string(),
+                "cloned_instead_of_copied".to_string(),
+                "clone_on_copy".to_string(),
+                "collapsible_if".to_string(),
+                "collapsible_str_replace".to_string(),
+                "crate_in_macro_def".to_string(),
+                "dbg_macro".to_string(),
+                "default_instead_of_iter_empty".to_string(),
+                "derivable_impls".to_string(),
+                "equatable_if_let".to_string(),
+                "err_expect".to_string(),
+                "expect_fun_call".to_string(),
+                "explicit_into_iter_loop".to_string(),
+                "explicit_iter_loop".to_string(),
+                "explicit_write".to_string(),
+                "extend_with_drain".to_string(),
+                "filter_map_identity".to_string(),
+                "filter_map_next".to_string(),
+                "filter_next".to_string(),
+                "flat_map_identity".to_string(),
+                "flat_map_option".to_string(),
+                "from_over_into".to_string(),
+                "from_str_radix_10".to_string(),
+                "get_last_with_len".to_string(),
+                "get_unwrap".to_string(),
+                "implicit_clone".to_string(),
+                "implicit_return".to_string(),
+                "implicit_saturating_add".to_string(),
+                "implicit_saturating_sub".to_string(),
+                "inconsistent_struct_constructor".to_string(),
+                "inefficient_to_string".to_string(),
+                "infallible_destructuring_match".to_string(),
+                "init_numbered_fields".to_string(),
+                "inline_fn_without_body".to_string(),
+                "into_iter_on_ref".to_string(),
+                "int_plus_one".to_string(),
+                "is_digit_ascii_radix".to_string(),
+                "iter_cloned_collect".to_string(),
+                "iter_count".to_string(),
+                "iter_kv_map".to_string(),
+                "iter_next_slice".to_string(),
+                "iter_nth_zero".to_string(),
+                "iter_overeager_cloned".to_string(),
+                "iter_skip_next".to_string(),
+                "large_const_arrays".to_string(),
+                "len_zero".to_string(),
+                "let_unit_value".to_string(),
+                "manual_assert".to_string(),
+                "manual_async_fn".to_string(),
+                "manual_bits".to_string(),
+                "manual_find".to_string(),
+                "manual_is_ascii_check".to_string(),
+                "manual_let_else".to_string(),
+                "manual_ok_or".to_string(),
+                "manual_rem_euclid".to_string(),
+                "manual_retain".to_string(),
+                "manual_saturating_arithmetic".to_string(),
+                "manual_string_new".to_string(),
+                "manual_str_repeat".to_string(),
+                "manual_unwrap_or".to_string(),
+                "map_clone".to_string(),
+                "map_collect_result_unit".to_string(),
+                "map_flatten".to_string(),
+                "map_identity".to_string(),
+                "map_unwrap_or".to_string(),
+                "match_as_ref".to_string(),
+                "match_bool".to_string(),
+                "match_result_ok".to_string(),
+                "match_single_binding".to_string(),
+                "match_str_case_mismatch".to_string(),
+                "missing_spin_loop".to_string(),
+                "needless_arbitrary_self_type".to_string(),
+                "needless_bool".to_string(),
+                "needless_collect".to_string(),
+                "needless_for_each".to_string(),
+                "needless_late_init".to_string(),
+                "needless_match".to_string(),
+                "needless_option_as_deref".to_string(),
+                "needless_option_take".to_string(),
+                "needless_parens_on_range_literals".to_string(),
+                "needless_question_mark".to_string(),
+                "neg_multiply".to_string(),
+                "no_effect".to_string(),
+                "non_octal_unix_permissions".to_string(),
+                "nonstandard_macro_braces".to_string(),
+                "obfuscated_if_else".to_string(),
+                "option_as_ref_deref".to_string(),
+                "option_map_or_none".to_string(),
+                "map_unwrap_or".to_string(),
+                "or_fun_call".to_string(),
+                "or_then_unwrap".to_string(),
+                "partialeq_to_none".to_string(),
+                "path_buf_push_overwrite".to_string(),
+                "precedence".to_string(),
+                "ptr_as_ptr".to_string(),
+                "ptr_offset_with_cast".to_string(),
+                "question_mark".to_string(),
+                "rc_clone_in_vec_init".to_string(),
+                "redundant_clone".to_string(),
+                "redundant_closure_call".to_string(),
+                "redundant_field_names".to_string(),
+                "redundant_pattern".to_string(),
+                "redundant_pub_crate".to_string(),
+                "redundant_slicing".to_string(),
+                "redundant_static_lifetimes".to_string(),
+                "repeat_once".to_string(),
+                "search_is_some".to_string(),
+                "seek_from_current".to_string(),
+                "seek_to_start_instead_of_rewind".to_string(),
+                "single_char_pattern".to_string(),
+                "single_component_path_imports".to_string(),
+                "single_element_loop".to_string(),
+                "single_match".to_string(),
+                "stable_sort_primitive".to_string(),
+                "strlen_on_c_strings".to_string(),
+                "suspicious_operation_groupings".to_string(),
+                "swap_ptr_to_ref".to_string(),
+                "to_digit_is_some".to_string(),
+                "transmute_ptr_to_ref".to_string(),
+                "transmutes_expressible_as_ptr_casts".to_string(),
+                "try_err".to_string(),
+                "unit_arg".to_string(),
+                "unnecessary_cast".to_string(),
+                "unnecessary_fold".to_string(),
+                "unnecessary_join".to_string(),
+                "unnecessary_owned_empty_strings".to_string(),
+                "unnecessary_sort_by".to_string(),
+                "unnecessary_to_owned".to_string(),
+                "unneeded_wildcard_pattern".to_string(),
+                "unnested_or_patterns".to_string(),
+                "unused_rounding".to_string(),
+                "unused_unit".to_string(),
+                "unwrap_or_else_default".to_string(),
+                "useless_asref".to_string(),
+                "use_self".to_string(),
+                "vec_box".to_string(),
+                "vec_init_then_push".to_string(),
+                "while_let_loop".to_string(),
+                "while_let_on_iterator".to_string(),
+                "wildcard_imports".to_string(),
+            ];
+        } else {
+            flags = vec![
+                "ptr_arg".to_string(),
+                "too_many_arguments".to_string(),
+                "missing_errors_doc".to_string(),
+                "missing_panics_doc".to_string(),
+                "await_holding_lock".to_string(),
+                "await_holding_refcell_ref".to_string(),
+                "assertions_on_constants".to_string(),
+                "large_stack_arrays".to_string(),
+                "match_bool".to_string(),
+                "needless_bitwise_bool".to_string(),
+                "empty_enum".to_string(),
+                "empty_enum".to_string(),
+                "enum_clike_unportable_variant".to_string(),
+                "enum_glob_use".to_string(),
+                "enum_glob_use".to_string(),
+                "exhaustive_enums".to_string(),
+                "cast_precision_loss".to_string(),
+                "float_arithmetic".to_string(),
+                "float_cmp".to_string(),
+                "float_cmp_const".to_string(),
+                "imprecise_flops".to_string(),
+                "suboptimal_flops".to_string(),
+                "as_conversions".to_string(),
+                "cast_lossless".to_string(),
+                "cast_possible_truncation".to_string(),
+                "cast_possible_wrap".to_string(),
+                "cast_precision_loss".to_string(),
+                "ptr_as_ptr".to_string(),
+                "default_numeric_fallback".to_string(),
+                "checked_conversions".to_string(),
+                "integer_arithmetic".to_string(),
+                "cast_sign_loss".to_string(),
+                "modulo_arithmetic".to_string(),
+                "exhaustive_structs".to_string(),
+                "struct_excessive_bools".to_string(),
+                "unwrap_used".to_string(),
+                "expect_used".to_string(),
+                "expect_fun_call".to_string(),
+                "large_types_passed_by_value".to_string(),
+                "fn_params_excessive_bools".to_string(),
+                "trivially_copy_pass_by_ref".to_string(),
+                "inline_always".to_string(),
+                "inefficient_to_string".to_string(),
+                "dbg_macro".to_string(),
+                "wildcard_imports".to_string(),
+                "self_named_module_files".to_string(),
+                "mod_module_files".to_string(),
+                "disallowed_methods".to_string(),
+                "disallowed_script_idents".to_string(),
+                "disallowed_types".to_string(),
+            ];
+        }
     }
-    flags
+    return flags
 }
 
 fn open_file_to_append(file: String) -> Result<std::fs::File, String> {
     if ! std::path::Path::new(&file).exists() {
-        open_file_to_write(file)
+        return open_file_to_write(file)
     } else {
         let mut binding = std::fs::OpenOptions::new();
         let option = binding.create_new(false).write(true).append(true);
         match option.open(file) {
-            Err(e) => Err(format!("{e}")),
-            Ok(option) => Ok(option),
+            Err(e) => return Err(format!("{e}")),
+            Ok(option) => return Ok(option),
         }
     }
 }
@@ -684,18 +689,20 @@ fn open_file_to_write(file: String) -> Result<std::fs::File, String> {
     let mut binding = std::fs::OpenOptions::new();
     let option = binding.create_new(true).write(true).append(false);
     match option.open(file) {
-            Err(e) => Err(format!("{e}")),
-            Ok(option) => Ok(option),
+            Err(e) => return Err(format!("{e}")),
+            Ok(option) => return Ok(option),
     }
  }
 
 fn fprint_warning_count(file: String, all_warnings: BTreeMap<String, Vec<Warning>>) {
     let mut count: usize = 0;
-    all_warnings.iter().for_each(|(_k, v)| {
+    for (_k, v) in &all_warnings {
         count = count.saturating_add(v.len());
-    });
+    }
     let remained = clippy_fix();
     if let Ok(mut file) = open_file_to_write(file) {
+        println!("=========== There are {} warnings in {} files, {} has been fixed.\n", 
+                               count, all_warnings.len(), count.saturating_sub(remained));
         file.write_all(format!("There are {} warnings in {} files, {} has been fixed.\n", 
                                count, all_warnings.len(), count.saturating_sub(remained)).as_bytes()).ok();
     } 
@@ -705,12 +712,12 @@ fn get_current_id() -> Option<git2::Oid> {
     let folder = get_folder();
     if let Ok(repo) = git2::Repository::open(folder) {
         if let Ok(x) = repo.head() {
-            x.target()
+            return x.target()
         } else {
-            None
+            return None
         }
     } else {
-        None
+        return None
     }
 }
 
@@ -725,24 +732,24 @@ fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff> {
                         let mut diffopts2 = git2::DiffOptions::new();
                         diffopts2.context_lines(0);
                         if let Ok(diff) = repo.diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2)) {
-                            Some(diff)
+                            return Some(diff)
                         } else {
-                            None
+                            return None
                         }
                     } else {
-                        None
+                        return None
                     }
                 } else {
-                    None
+                    return None
                 }
             } else {
-                None
+                return None
             }
         } else {
-            None
+            return None
         }
     } else {
-        None
+        return None
     }
 }
 
@@ -762,7 +769,7 @@ struct Hunk {
     n_warnings: u32, // the number of related warning(s) in currenet version
     fixed: bool, // whether the related hunk will be fixed by the new version
 }
-static EMPTY_STRING: Lazy<String> = Lazy::new(|| "".to_string());
+static EMPTY_STRING: Lazy<String> = Lazy::new(|| String::new());
 
 impl std::fmt::Display for Hunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -772,26 +779,26 @@ impl std::fmt::Display for Hunk {
             if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
                 if args.function {
                     if !args.mixed {
-                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                        return write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.new_context)
                     } else if args.location {
-                        write!(f, "{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                        return write!(f, "{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.patch_text)
                     } else {
-                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                        return write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.patch_text)
                     }
                 } else if args.pair {
-                    write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
+                    return write!(f, "{}{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                         self.warnings, self.header, self.old_text, self.new_text)
                 } else {
-                    write!(f, "{}{}{}", self.warnings, self.header, self.patch_text)
+                    return write!(f, "{}{}{}", self.warnings, self.header, self.patch_text)
                 }
             } else { // no warning or more than one warnings
-                write!(f, "")
+                return write!(f, "")
             }
         } else { // not fixed
-            write!(f, "")
+            return write!(f, "")
         }
     }
 }
@@ -799,20 +806,20 @@ impl std::fmt::Display for Hunk {
 fn fprint_hunks(file: String, map: BTreeMap<String, Vec<Hunk>>) 
 {
     if let Ok(mut file) = open_file_to_append(file) {
-        map.iter().for_each(|(_, v)| {
-            v.iter().for_each(|h| {
+        for (_, v) in &map {
+            for h in v.iter() {
                 file.write_all(format!("{h}").as_bytes()).ok();
-            });
-        });
+            }
+        }
     }
 }
 
 fn u32_to_usize(x: u32) -> usize
 {
     if let Ok(y) = usize::try_from(x) {
-        y
+        return y
     } else {
-        0
+        return 0
     }
 }
 
@@ -902,33 +909,33 @@ fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
                 }
             }
         } 
-        true
+        return true
     })
     .ok();
     hunks.push(cur_hunk);
     map.insert(filename, hunks.clone());
-    map
+    return map
 }
 
 // This function associate the warnings to the hunks when they overlap.
 fn add_warnings_to_hunks(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<String, Vec<Warning>>) 
 {
-   hunks.iter_mut().for_each(|(k1, v1)| {
-       warnings.iter().for_each(|(k2, v2)| {
+   for (k1, v1) in hunks.iter_mut() {
+       for (k2, v2) in &warnings {
           if k1 == k2 {
-            v1.iter_mut().for_each(|h| {
-                v2.iter().for_each(|w| {
+            for h in v1.iter_mut() {
+                for w in v2.iter() {
                     if h.old_start_line <= w.end_line
                        && h.old_end_line >= w.start_line
                     {
                         h.n_warnings = h.n_warnings.saturating_add(1);
                         h.warnings = format!("{}#{}\n", h.warnings, w.name);
                     }
-               });
-            });
+               }
+            }
           }
-       });
-    });
+       }
+    }
 }
 
 fn get_all_new_warnings() -> BTreeMap<String, Vec<Warning>>
@@ -944,18 +951,18 @@ fn get_all_new_warnings() -> BTreeMap<String, Vec<Warning>>
                     checkout(oid);
                     let all_new_warnings = diagnose_all_warnings(flags);
                     checkout(old_id);
-                    all_new_warnings
+                    return all_new_warnings
                 } else {
-                    map
+                    return map
                 }
             } else {
-                map
+                return map
             }
         } else {
-            map
+            return map
         }
     } else {
-        map
+        return map
     }
 }
 
@@ -964,28 +971,28 @@ fn check_fixed(hunks: &mut BTreeMap<String, Vec<Hunk>>, warnings: BTreeMap<Strin
 {
    let v = get_args();
    let args = &v[0];
-   hunks.iter_mut().for_each(|(k1, v1)| {
-        v1.iter_mut().for_each(|h| {
+   for (k1, v1) in hunks.iter_mut() {
+        for h in v1.iter_mut() {
            if !args.single && h.n_warnings>0 || h.n_warnings == 1 {
                 let mut fixed = true;
-                warnings.iter().for_each(|(k2, v2)| {
+                for (k2, v2) in &warnings {
                     if k1 == k2 {
-                        v2.iter().for_each(|w| {
+                        for w in v2.iter() {
                             if h.new_start_line <= w.end_line 
                                 && h.new_end_line >= w.start_line
                             {
                                 fixed = false;
                             }
-                        });
+                        }
                     }
-                });
+                }
                 if fixed {
                    // print!(">>>>>{h}");
                    h.fixed = true;
                 }
            }
-       });
-    });
+       }
+    }
 }
 
 fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
@@ -1005,14 +1012,14 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
                 add_warnings_to_hunks(&mut hunks, all_warnings.clone());
                 let new_warnings = get_all_new_warnings();
                 check_fixed(&mut hunks, new_warnings);
-                hunks.iter_mut().for_each(|(k0,v)| {
+                for (k0,v) in hunks.iter_mut() {
                     let filename = format!("{folder}/{k0}");
                     if let Ok(source) = read_to_string(filename.as_str()) {
                         let source = source.as_bytes();
                         let p = std::path::Path::new(filename.as_str());
                         if let Ok(function_items) = get_function_items(p) {
-                            v.iter_mut().for_each(|h| {
-                                function_items.iter().for_each(|(k, f)| {
+                            for h in v.iter_mut() {
+                                for (k, f) in &function_items {
                                     let prev_l = h.old_start_line.saturating_sub(1);
                                     let prev_r = h.old_end_line.saturating_sub(1);
                                     if k.start_line <= prev_l
@@ -1020,7 +1027,7 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
                                     {
                                         if args.location {
                                             if let Some(ws) = &all_warnings.get(k0) {
-                                                let markedup = &markup_code(source, k, ws.to_vec());
+                                                let markedup = &markup_code(source, k, (*ws).clone());
                                                 if let Ok(s) = std::str::from_utf8(markedup) {
                                                     h.context = s.to_string();
                                                 } else {
@@ -1035,7 +1042,7 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
                                         let n = h.old_start_line.saturating_sub(k.start_line).saturating_sub(1);
                                         let m = h.old_end_line.saturating_sub(k.start_line);
                                         let lines: Vec<&str> = f.split('\n').collect();
-                                        h.new_context = "".to_string();
+                                        h.new_context = String::new();
                                         (0..n).for_each(|i| {
                                             h.new_context.push_str(lines[i]);
                                             h.new_context.push('\n');
@@ -1046,11 +1053,11 @@ fn handle_patch(all_warnings: BTreeMap<String, Vec<Warning>>) {
                                             h.new_context.push('\n');
                                         });
                                     }
-                                });
-                            });
+                                }
+                            }
                         }
                     } 
-                });
+                }
                 if open_file_to_write(json_filename.clone()).is_ok() {
                     if let Ok(mut file) = open_file_to_append(json_filename) {
                         if let Ok(msg) = serde_json::to_string(&hunks) {
@@ -1077,10 +1084,10 @@ fn run() {
 
 fn get_function_items(p: &std::path::Path) -> Result<BTreeMap<LineRange, String>, anyhow::Error> {
     if let Ok(s) = read_to_string(p) {
-        splitup(s)
+        return splitup(s)
     } else {
         let map: BTreeMap<LineRange, String> = BTreeMap::new();
-        Ok(map)
+        return Ok(map)
     }
 }
 
@@ -1094,14 +1101,14 @@ fn sub_messages(children: &[Diagnostic]) -> String {
         .iter()
         .map(|x| {
             if let Some(rendered) = &x.rendered {
-                format!("{}: {}", &x.message, &rendered)
+                return format!("{}: {}", &x.message, &rendered)
             } else {
-                x.message.to_owned()
+                x.message.clone()
             }
         })
         .collect::<Vec<String>>();
     v.sort();
-    v.join("\n")
+    return v.join("\n")
 }
 
 fn remove_a_file(tmp: &str) {
@@ -1146,7 +1153,7 @@ mod tests {
 
     fn get_temp_dir() -> String 
     {
-        format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_")
+        return format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_")
     }
 
     #[test]
@@ -1163,6 +1170,7 @@ mod tests {
             single: true,
             location: false,
             mixed: false,
+            fix: false,
         };
         let dir = std::path::Path::new(&temp_dir);
         if dir.exists() {
@@ -1184,7 +1192,7 @@ fn main() {
             let filename = format!("{}/src/main.rs", temp_dir.clone());
                 let _ = std::fs::write(filename, code);
                 run();
-                let filename = format!("{}/src/main.rs", diagnostics_folder);
+                let filename = format!("{diagnostics_folder}/src/main.rs");
                 let filename = filename.as_str();
                 assert!(std::path::Path::new(filename).exists());
                 if let Ok(s) = std::fs::read_to_string(filename) { 
@@ -1338,6 +1346,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
             single:true,
             location: false,
             mixed: false,
+            fix: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1356,7 +1365,7 @@ fn main() {
 "#,
         ) {
             let args = Args {
-                folder: Some(temp_dir.clone()),
+                folder: Some(temp_dir),
                 flags: vec![],
                 patch: Some(update_commit.to_string()),
                 confirm: debug_confirm,
@@ -1365,6 +1374,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
+            fix: false,
             };
             my_args(args);
             run();
@@ -1399,6 +1409,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
+            fix: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1427,6 +1438,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
+            fix: false,
             };
             my_args(args);
             run();
@@ -1462,6 +1474,7 @@ fn main() {
             single: true,
             location: false,
             mixed: true,
+            fix: false,
         };
         my_args(args);
 
@@ -1476,6 +1489,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: true,
+            fix: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1499,6 +1513,7 @@ fn main() {
             single: true,
             location: true,
             mixed: true,
+            fix: false,
         };
         my_args(args);
 
@@ -1513,6 +1528,7 @@ fn main() {
                 single: true,
                 location: true,
                 mixed: true,
+            fix: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1536,6 +1552,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
+            fix: false,
         };
         my_args(args);
 
@@ -1550,6 +1567,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
+            fix: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1737,6 +1755,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
+            fix: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1763,6 +1782,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
+            fix: false,
             };
             my_args(args);
             run();
@@ -1808,13 +1828,13 @@ fn main() {
                 if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
                     s
                 } else {
-                    "".to_string()
+                    return String::new()
                 }
             } else {
-                "".to_string()
+                return String::new()
             }
         } else {
-            "".to_string()
+            return String::new()
         }
     }
 
@@ -1848,13 +1868,13 @@ fn main() {
                 if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
                     s
                 } else {
-                    "".to_string()
+                    return String::new()
                 }
             } else {
-                "".to_string()
+                return String::new()
             }
         } else {
-            "".to_string()
+            return String::new()
         }
     }
 
@@ -1889,6 +1909,7 @@ fn main() {
                     single: true,
                     location: false,
                     mixed: false,
+            fix: false,
                 },
                 "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
                 rd_run
@@ -1899,11 +1920,36 @@ fn main() {
 
     #[test]
     #[serial]
+    fn rd1_fix() {
+        let temp_dir = get_temp_dir();
+        assert_eq!(
+            rd_setup(temp_dir.clone(),
+                Args {folder: Some(temp_dir),
+                    patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
+                    flags: vec![],
+                    confirm: true,
+                    pair: true,
+                    function: true,
+                    single: true,
+                    location: false,
+                    mixed: false,
+                    fix: true,
+                },
+                "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
+                rd_run
+            ),
+            "There are 33 warnings in 1 files, 0 has been fixed.\n"
+        );
+    }
+
+
+    #[test]
+    #[serial]
     fn rd2() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false},
+                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -1913,7 +1959,7 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false},
+                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -1924,7 +1970,7 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -1980,7 +2026,7 @@ fn main() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false},
+                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -1990,7 +2036,7 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false},
+                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -2001,7 +2047,7 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -2058,13 +2104,13 @@ fn main() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
-                flags: vec![], confirm: false, pair: false, function: false, single: true,  location: false, mixed: false},
+                flags: vec![], confirm: false, pair: false, function: false, single: true,  location: false, mixed: false, fix: false},
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files, 0 has been fixed.
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir), 
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false},
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files, 0 has been fixed.
         "###);
@@ -2083,6 +2129,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
+            fix: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @"");
      }
@@ -2100,6 +2147,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
+            fix: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @"");
     }

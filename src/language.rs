@@ -8,20 +8,20 @@ pub enum Language {
 }
 
 impl Language {
-    pub fn all() -> Vec<Language> {
-        vec![Language::Rust]
+    pub fn all() -> Vec<Self> {
+        vec![Self::Rust]
     }
 
     pub fn language(&self) -> tree_sitter::Language {
         unsafe {
             match self {
-                Language::Rust => tree_sitter_rust(),
+                Self::Rust => return tree_sitter_rust(),
             }
         }
     }
 
     pub fn parse_query(&self, raw: &str) -> Result<tree_sitter::Query> {
-        tree_sitter::Query::new(self.language(), raw).map_err(|err| anyhow!("{}", err))
+        return tree_sitter::Query::new(self.language(), raw).map_err(|err| anyhow!("{}", err))
     }
 }
 
@@ -30,13 +30,13 @@ impl FromStr for Language {
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
-            "rust" => Ok(Language::Rust),
+            "rust" => Ok(Self::Rust),
             _ => bail!(
                 "unknown language {}. Try one of: {}",
                 s,
-                Language::all()
+                Self::all()
                     .into_iter()
-                    .map(|l| l.to_string())
+                    .map(|l| return l.to_string())
                     .collect::<Vec<String>>()
                     .join(", ")
             ),
@@ -47,7 +47,7 @@ impl FromStr for Language {
 impl Display for Language {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Language::Rust => f.write_str("rust"),
+            Self::Rust => return f.write_str("rust"),
         }
     }
 }
