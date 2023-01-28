@@ -281,6 +281,10 @@ requested on the command line with `-W clippy::unwrap-used`*/;
 Note that we don't keep the header because the line numbers are no longer important if we already know where the
 warning is and the inserted markup hints already shifted the original line numbers.
 
+## Counting warnings
+
+An alternative to count warnings (probably quicker) is to use "cargo lintcheck".
+
 ## Acknowledgement
 
 - [David Wood](https://davidtw.co) offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;

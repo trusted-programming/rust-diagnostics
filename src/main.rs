@@ -49,7 +49,7 @@ struct Args {
     mixed: bool,
 }
 
-static ARGS: Lazy<Mutex<Vec<Args>>> = Lazy::new(|| Mutex::new(vec![]));
+static ARGS: Mutex<Vec<Args>> = Mutex::new(vec![]);
 
 fn get_args() -> Vec<Args> {
     set_args();
