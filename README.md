@@ -215,11 +215,13 @@ For example, it will print the following instead:
 ```
 There are 1 warnings in 1 files.
 ##[Warning(clippy::unwrap_used)
+@@ -3,2 +3,3 @@ fn main() {
 fn main() {
     let s = std::fs::read_to_string("Cargo.toml").unwrap();
     println!("{s}");
 }
 === 19a3477889393ea2cdd0edcb5e6ab30c ===
+@@ -3,2 +3,3 @@ fn main() {
 fn main() {
     if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
         println!("{s}");
