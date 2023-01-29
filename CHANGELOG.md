@@ -1,4 +1,6 @@
 ## Change Log
+- [x] Put header ahead of before and after contexts of the hunk pairs
+- [x] Updated the TXL refactoring transformation and Rust grammaar
 - [x] Add '--fix' option to invoke flags related to all machine applicable fix rules from rust-clippy project
 - [x] Count clippy fixes
 - [x] Cache computed data by serialized/deserialize diff hunks

@@ -114,7 +114,7 @@ fn markup(source: &[u8], map: Vec<Warning>) -> Vec<u8> {
         }
         output.push(*c);
     }
-    output
+    return output
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -777,8 +777,8 @@ impl std::fmt::Display for Hunk {
             if ! args.single && self.n_warnings > 0 || self.n_warnings == 1 {
                 if args.function {
                     if !args.mixed {
-                        write!(f, "{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
-                            self.warnings, self.context, self.new_context)
+                        write!(f, "{}{}{}\n=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}{}",
+                            self.warnings, self.header, self.context, self.header, self.new_context)
                     } else if args.location {
                         write!(f, "{}{}=== 19a3477889393ea2cdd0edcb5e6ab30c ===\n{}",
                             self.warnings, self.context, self.patch_text)
@@ -1682,6 +1682,7 @@ fn main() {
 "#,
             r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
+@@ -3,4 +3,3 @@ fn main() {
 fn main() {
 
 
@@ -1689,6 +1690,7 @@ fn main() {
     println!("{s}");
 }
 === 19a3477889393ea2cdd0edcb5e6ab30c ===
+@@ -3,4 +3,3 @@ fn main() {
 fn main() {
     if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
         println!("{s}");
@@ -1723,6 +1725,7 @@ fn main() {
 "#,
             r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
+@@ -3,4 +3,3 @@ fn main() {
 fn main() {
 
 
@@ -1730,6 +1733,7 @@ fn main() {
     println!("{s}");
 }
 === 19a3477889393ea2cdd0edcb5e6ab30c ===
+@@ -3,4 +3,3 @@ fn main() {
 fn main() {
     if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
         println!("{s}");
@@ -1900,7 +1904,7 @@ fn main() {
             rd_setup(temp_dir.clone(),
                 Args {folder: Some(temp_dir),
                     patch: Some("512236bac29f09ca798c93020ce377c30a4ed2a5".to_string()),
-                    flags: vec![],
+                    flags: vec!["unwrap_used".to_string()],
                     confirm: true,
                     pair: true,
                     function: true,
