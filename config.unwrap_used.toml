@@ -1,0 +1,6 @@
+[target.'cfg(all())']
+rustflags = [
+	"-Wclippy::unwrap_used",
+	"-Aclippy::uninlined_format_args",
+	"-Aclippy::zero_prefixed_literal",
+]
