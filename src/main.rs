@@ -1725,7 +1725,7 @@ fn main() {
 "#,
             r###"There are 1 warnings in 1 files, 0 has been fixed.
 ##[Warning(clippy::unwrap_used)
-@@ -3,4 +3,3 @@ fn main() {
+@@ -5,4 +5,3 @@ fn main() {
 fn main() {
 
 
@@ -1733,7 +1733,7 @@ fn main() {
     println!("{s}");
 }
 === 19a3477889393ea2cdd0edcb5e6ab30c ===
-@@ -3,4 +3,3 @@ fn main() {
+@@ -5,4 +5,3 @@ fn main() {
 fn main() {
     if let Ok(s) = std::fs::read_to_string("Cargo.toml") {
         println!("{s}");
@@ -1940,7 +1940,7 @@ fn main() {
                 "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
                 rd_run
             ),
-            "There are 33 warnings in 1 files, 0 has been fixed.\n"
+            "There are 32 warnings in 1 files, 0 has been fixed.\n"
         );
     }
 
@@ -1976,6 +1976,7 @@ fn main() {
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
         fn remove_previously_generated_files() {
             let command = Command::new("find")
                 .args(&[".", "-name", "*.rs.1"])
@@ -1998,6 +1999,7 @@ fn main() {
             });
         }
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
         fn remove_previously_generated_files() {
             let command = Command::new("find")
                 .args(&[".", "-name", "*.rs.1"])
@@ -2053,6 +2055,7 @@ fn main() {
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 30 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
         fn remove_previously_generated_files() {
             let command = Command::new("find")
                 .args(&[".", "-name", "*.rs.1"])
@@ -2075,6 +2078,7 @@ fn main() {
             });
         }
         === 19a3477889393ea2cdd0edcb5e6ab30c ===
+        @@ -107 +107 @@ fn remove_previously_generated_files() {
         fn remove_previously_generated_files() {
             let command = Command::new("find")
                 .args(&[".", "-name", "*.rs.1"])
