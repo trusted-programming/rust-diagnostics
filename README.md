@@ -3,7 +3,7 @@
 [![](https://img.shields.io/crates/v/rust-diagnostics.svg)](https://crates.io/crates/rust-diagnostics)
 
 This is a utility to insert diagnostics of code fragments as comments in Rust
-code and checks how a warning/error in the diagnostics has been fixed in git
+code and check how a warning/error in the diagnostics has been fixed in git
 commit history.
 
 Rust compiler displays many diagnostics to the console, using file name and
