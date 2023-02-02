@@ -294,6 +294,8 @@ An alternative to count warnings (probably quicker) is to use "cargo lintcheck".
 - [David Wood](https://davidtw.co) offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;
 - [Mara Bos](https://github.com/m-ou-se) provided some hints on how to fix `unwrap()` warnings using `if-let` statements;
 - [Amanieu d'Antras](https://github.com/Amanieu) provided some explanation for the necessity of certain clippy rules in practice, he also improves the performance of the underlying BTreeMap.
-- [Josh Triplett](https://github.com/joshtriplett) implemented the underlying `git2-rs` which wraps the `libgit2` library in Rust.
+- [Guillaume Gomez](https://github.com/GuillaumeGoemz) explained the current role of `cargo clippy --fix` rules.
 - Dr Chunmiao Li implemented the refactoring rule `unwrapped_used.txl` to fix the corresponding warnings automatically.
+- Haitao Wu made some improvement on the `unwrapped_used.txl` rule.
 - [Dr Nghi Bui](https://github.com/bdqnghi) suggested an idea to create mixed pairs.
+- [Josh Triplett](https://github.com/joshtriplett) implemented the underlying `git2-rs` which wraps the `libgit2` library in Rust.
