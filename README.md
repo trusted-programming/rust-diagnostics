@@ -1,6 +1,6 @@
 # rust-diagnostics
 
-[![](https://img.shields.io/crates/v/z3.svg)](https://crates.io/crates/rust-diagnostics)
+[![](https://img.shields.io/crates/v/rust-diagnostics.svg)](https://crates.io/crates/rust-diagnostics)
 
 This is a utility to insert diagnostics of code fragments as comments in Rust
 code and checks how a warning/error in the diagnostics has been fixed in git
