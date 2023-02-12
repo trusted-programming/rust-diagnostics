@@ -1151,7 +1151,7 @@ mod tests {
 
     fn get_temp_dir() -> String 
     {
-        format!("tmp_{}", uuid::Uuid::new_v4()).replace('-', "_")
+        format!("/tmp/tmp_{}", uuid::Uuid::new_v4()).replace('-', "_")
     }
 
     #[test]

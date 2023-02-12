@@ -1,3 +1,8 @@
+[workspace]
+members = [
+    "crates/*",
+]
+
 [package]
 name = "rust-diagnostics"
 version = "0.1.11"
@@ -12,6 +17,9 @@ keywords = ["clippy", "diagnostics"]
 license = "Apache-2.0"
 
 [dependencies]
+persistence = { path = "crates/persistence" }
+gitlog = { path = "crates/gitlog", optional = true }
+warning = { path = "crates/warning", optional = true }
 cargo = "0.66.0"
 cargo_metadata = "0.15.1"
 structopt = "0.3.26"
