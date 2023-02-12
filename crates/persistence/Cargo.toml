@@ -1,0 +1,18 @@
+[package]
+name = "persistence"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gitlog = { path = "../gitlog" }
+warning = { path = "../warning" }
+redis = { version = "0.22.3", optional = true }
+skytable = { git = "https://github.com/skytable/client-rust", optional = true }
+serde = { version = "1.0.133", features = [ "derive" ] }
+serde_json = "1.0.89"
+
+[features]
+#default = ["skytable"]
+default = ["redis"]
+redis = ["dep:redis"]
+skytable = ["dep:skytable"]
