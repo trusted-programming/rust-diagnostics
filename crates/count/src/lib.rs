@@ -11,7 +11,7 @@ pub fn counting()
     let map: BTreeMap<String, Vec<Warning>> = load_map();
     let mut s: usize = 0;
     map.iter().for_each(|(k, v)| {
-        println!("==================================== {k}: {}", v.len());
+        println!("{k}: {}", v.len());
         s += v.len()
     });
     println!("==================================== {s}");
