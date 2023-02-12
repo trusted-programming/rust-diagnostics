@@ -326,3 +326,20 @@ pub fn warnings(folder: String) -> BTreeMap<String, Vec<Warning>> {
     }
     map
 }
+
+use tokei::{Config, Languages, LanguageType};
+
+/// return the LOC of Rust code
+pub fn loc(folder: String) -> usize {
+    let paths = &[folder.as_str()];
+    // Exclude any path that contains any of these strings.
+    let target = format!("{folder}/target");
+    let excluded = &[target.as_str()];
+    // `Config` allows you to configure what is searched and counted.
+    let config = Config::default();
+    let mut languages = Languages::new();
+    languages.get_statistics(paths, excluded, &config);
+    let rust = &languages[&LanguageType::Rust];
+    println!("Lines of code: {}", rust.code);
+    rust.code
+}
