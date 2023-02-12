@@ -1,0 +1,10 @@
+[package]
+name = "count"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+warning = { path = "../warning" }
+persistence = { path = "../persistence" }
+serde = { version = "1.0.133", features = [ "derive" ] }
+serde_json = "1.0.91"
