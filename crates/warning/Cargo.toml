@@ -1,0 +1,8 @@
+[package]
+name = "warning"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cargo = "0.66.0"
+cargo_metadata = "0.15.1"
