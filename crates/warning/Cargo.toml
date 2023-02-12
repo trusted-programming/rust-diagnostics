@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 cargo = "0.66.0"
 cargo_metadata = "0.15.1"
+serde = { version = "1.0.133", features = [ "derive" ] }

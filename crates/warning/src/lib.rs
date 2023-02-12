@@ -1,11 +1,11 @@
 use std::{collections::BTreeMap, process::{Command, Stdio}};
-
 use cargo_metadata::{Message, diagnostic::Diagnostic};
+use serde::{Serialize, Deserialize};
 
 #[cfg(test)]
 pub mod test;
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Warning {
     name: String,
     start: usize,

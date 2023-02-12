@@ -317,6 +317,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
 
 [[package]]
+name = "count"
+version = "0.1.0"
+dependencies = [
+ "persistence",
+ "serde",
+ "serde_json",
+ "warning",
+]
+
+[[package]]
 name = "crates-io"
 version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1039,6 +1049,7 @@ dependencies = [
  "serde",
  "serde_json",
  "skytable",
+ "warning",
 ]
 
 [[package]]
@@ -1712,6 +1723,7 @@ version = "0.1.0"
 dependencies = [
  "cargo",
  "cargo_metadata",
+ "serde",
 ]
 
 [[package]]
