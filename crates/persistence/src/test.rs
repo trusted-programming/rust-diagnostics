@@ -12,11 +12,13 @@ fn main() {
     let (url, hashes) = gitlog("/tmp/diag");
     let _ = save_table(url.clone(), hashes.clone());
     let _ = update_set("projects".to_string(), url.clone());
+    let mut i: i32 = 0;
     for h in hashes {
+        i += 1;
         checkout("/tmp/diag".to_string(), h.clone());
         let w = warnings("/tmp/diag".to_string());
-        let _ = save_map(format!("{url}->{h}"), w);
+        let _ = save_map(format!("{url}->{i:08}"), w);
         let loc = loc("/tmp/diag".to_string());
-        let _ = save_value(format!("{url}->{h}->loc"), format!("{loc}"));
+        let _ = save_value(format!("{url}->{i:08}->loc"), format!("{loc}"));
     }
 }

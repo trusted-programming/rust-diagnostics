@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 gitlog = { path = "../gitlog" }
 warning = { path = "../warning" }
+function = { path = "../function" }
 redis = { version = "0.22.3", optional = true }
 skytable = { git = "https://github.com/skytable/client-rust", optional = true }
 serde = { version = "1.0.133", features = [ "derive" ] }

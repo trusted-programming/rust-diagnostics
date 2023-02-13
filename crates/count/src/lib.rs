@@ -7,6 +7,7 @@ use warning::Warning;
 use persistence::load_map;
 use persistence::load_loc_map;
 
+/// counting warnings and LOC per revision of a project
 pub fn counting() 
 {
     let map: BTreeMap<String, Vec<Warning>> = load_map();

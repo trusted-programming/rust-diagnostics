@@ -767,6 +767,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "function"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tree-sitter",
+ "tree-sitter-parsers",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1502,6 +1513,7 @@ checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
 name = "persistence"
 version = "0.1.0"
 dependencies = [
+ "function",
  "gitlog",
  "redis",
  "serde",
@@ -1805,6 +1817,7 @@ dependencies = [
  "cargo",
  "cargo_metadata",
  "cc",
+ "function",
  "git2",
  "gitlog",
  "insta",

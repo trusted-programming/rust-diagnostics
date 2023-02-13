@@ -20,6 +20,7 @@ license = "Apache-2.0"
 persistence = { path = "crates/persistence" }
 gitlog = { path = "crates/gitlog", optional = true }
 warning = { path = "crates/warning", optional = true }
+function = { path = "crates/function", optional = true }
 cargo = "0.66.0"
 cargo_metadata = "0.15.1"
 structopt = "0.3.26"

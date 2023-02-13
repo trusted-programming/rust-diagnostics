@@ -115,14 +115,13 @@ pub fn load_map() -> BTreeMap<String,Vec<Warning>> {
                 let hashes_string: String = con.get(project).unwrap();
                 if let Ok(hashes) = serde_json::from_str::<Vec<String>>(&hashes_string) {
                     let mut i: i32 = 0;
-                    hashes.iter().for_each(|hash| {
+                    hashes.iter().for_each(|_| {
                         i += 1;
-                        let keys: Vec<String> = con.keys(format!("{project}->{hash}->*")).unwrap();
+                        let keys: Vec<String> = con.keys(format!("{project}->{i:08}->*")).unwrap();
                         keys.iter().for_each(|k| {
-                            let key_string = k.replace(format!("{hash}").as_str(), format!("{i:08}").as_str());
                             let values_string: String = con.get(k).unwrap();
                             if let Ok(w) = serde_json::from_str::<Vec<Warning>>(&values_string) {
-                                map.insert(key_string, w);              
+                                map.insert(k.clone(), w);              
                             }
                         });
                     });
@@ -148,13 +147,12 @@ pub fn load_loc_map() -> BTreeMap<String,usize> {
                 let hashes_string: String = con.get(project).unwrap();
                 if let Ok(hashes) = serde_json::from_str::<Vec<String>>(&hashes_string) {
                     let mut i: i32 = 0;
-                    hashes.iter().for_each(|hash| {
+                    hashes.iter().for_each(|_| {
                         i += 1;
-                        let keys: Vec<String> = con.keys(format!("{project}->{hash}->loc")).unwrap();
+                        let keys: Vec<String> = con.keys(format!("{project}->{i:08}->loc")).unwrap();
                         keys.iter().for_each(|k| {
-                            let key_string = k.replace(format!("{hash}").as_str(), format!("{i:08}").as_str());
-                            let value: usize = con.get(k).unwrap();
-                            map.insert(key_string, value);              
+                            let value: usize = con.get(k.clone()).unwrap();
+                            map.insert(k.clone(), value);              
                         });
                     });
                 }
@@ -162,4 +160,39 @@ pub fn load_loc_map() -> BTreeMap<String,usize> {
         }
     }
     map
+}
+
+use function::functions;
+
+///
+/// save the functions into $project->$hash->$file->$start_byte->$start_line->$end_line
+///
+/// # Errors
+/// return () if `redis` cannot connect
+#[cfg(feature = "redis")]
+pub fn save_functions() {
+    if let Ok(client) = redis::Client::open("redis://127.0.0.1/") {
+        if let Ok(mut con) = client.get_connection() {
+            let projects: Vec<String> = con.smembers("projects").unwrap();
+            projects.iter().for_each(|project| {
+                let hashes_string: String = con.get(project).unwrap();
+                if let Ok(hashes) = serde_json::from_str::<Vec<String>>(&hashes_string) {
+                    let mut i: i32 = 0;
+                    hashes.iter().for_each(|_| {
+                        i += 1;
+                        let keys: Vec<String> = con.keys(format!("{project}->{i:08}->*")).unwrap();
+                        keys.iter().for_each(|k| {
+                            let v = k.split("->").collect::<Vec<&str>>();
+                            let fn_map = functions(v[1].to_string(), v[0].to_string(), v[2].to_string());
+                            /*
+                            fn_map.iter().for_each(|(k, v)| {
+                                con.set(*k, *v).ok();
+                            });
+                            */
+                        });
+                    });
+                }
+            });
+        }
+    }
 }
