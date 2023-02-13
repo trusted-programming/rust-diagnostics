@@ -1,7 +1,5 @@
 redis-cli flushdb
-cd persistence
-cargo run
-cd - > /dev/null
-cd count
-cargo run
-cd - > /dev/null
+persistence
+count > counts.csv
+gnuplot counts.gnuplot
+open counts.png

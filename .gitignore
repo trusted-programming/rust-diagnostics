@@ -5,3 +5,5 @@ diagnostics
 src/snapshots
 tmp_*
 src/.main.rs.*
+counts.csv
+counts.png
