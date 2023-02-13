@@ -73,6 +73,7 @@ pub fn update_set(key: String, value: String) -> redis::RedisResult<bool> {
 
 use std::collections::BTreeMap;
 use warning::Warning;
+use gitlog::Log;
 use serde::Serialize;
 
 ///
@@ -110,6 +111,37 @@ pub fn save_value(key: String, value: String) -> redis::RedisResult<()> {
     con.set::<String, String, ()>(key, value).ok();
     Ok(())
 }
+///
+/// load the BTreeMaps from $project->$i->$log
+///
+/// # Errors
+/// return () if `redis` cannot connect
+#[cfg(feature = "redis")]
+pub fn load_logs() -> BTreeMap<String,Log> {
+    let mut map: BTreeMap<String, Log> = BTreeMap::new();
+    if let Ok(client) = redis::Client::open("redis://127.0.0.1/") {
+        if let Ok(mut con) = client.get_connection() {
+            let projects: Vec<String> = con.smembers("projects").unwrap();
+            projects.iter().for_each(|project| {
+                let url: String = con.get(project).unwrap();
+                let n: String = con.get(format!("{url}->revisions")).unwrap();
+                let n = n.replace('"', "");
+                let n = n.parse::<usize>().unwrap();
+                for i in 1..n {
+                    let keys: Vec<String> = con.keys(format!("{url}->{i:08}")).unwrap();
+                    keys.iter().for_each(|k| {
+                        let values_string: String = con.get(k).unwrap();
+                        if let Ok(w) = serde_json::from_str::<Log>(&values_string) {
+                            map.insert(k.clone(), w);              
+                        }
+                    });
+                }
+            });
+        }
+    }
+    map
+}
+
 
 ///
 /// load and merge the BTreeMaps from $project->$hash->$file
@@ -117,7 +149,7 @@ pub fn save_value(key: String, value: String) -> redis::RedisResult<()> {
 /// # Errors
 /// return () if `redis` cannot connect
 #[cfg(feature = "redis")]
-pub fn load_map() -> BTreeMap<String,Vec<Warning>> {
+pub fn load_warnings() -> BTreeMap<String,Vec<Warning>> {
     let mut map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
     if let Ok(client) = redis::Client::open("redis://127.0.0.1/") {
         if let Ok(mut con) = client.get_connection() {

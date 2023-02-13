@@ -333,7 +333,7 @@ use tokei::{Config, Languages, LanguageType};
 pub fn loc(folder: &str) -> usize {
     let paths = &[folder];
     // Exclude any path that contains any of these strings.
-    let target = format!("{folder}/target");
+    let target = "target".to_string();
     let excluded = &[target.as_str()];
     // `Config` allows you to configure what is searched and counted.
     let config = Config::default();

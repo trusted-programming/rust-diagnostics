@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+gitlog = { path = "../gitlog" }
 warning = { path = "../warning" }
 persistence = { path = "../persistence" }
 serde = { version = "1.0.133", features = [ "derive" ] }

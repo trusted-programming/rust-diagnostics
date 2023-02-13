@@ -4,10 +4,10 @@ pub mod test;
 use std::collections::BTreeMap;
 
 use git2::Repository;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 #[non_exhaustive]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Log {
     pub url: String,
     pub hash: String,
