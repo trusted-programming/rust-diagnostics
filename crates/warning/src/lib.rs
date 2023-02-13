@@ -263,7 +263,7 @@ fn get_flags() -> Vec<String> {
 }
 
 /// get all warnings from diagnostics
-pub fn warnings(folder: String) -> BTreeMap<String, Vec<Warning>> {
+pub fn warnings(folder: &str) -> BTreeMap<String, Vec<Warning>> {
     let mut map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
     let cargo = get_cargo();
     let manifest = format!("{folder}/Cargo.toml");
@@ -330,8 +330,8 @@ pub fn warnings(folder: String) -> BTreeMap<String, Vec<Warning>> {
 use tokei::{Config, Languages, LanguageType};
 
 /// return the LOC of Rust code
-pub fn loc(folder: String) -> usize {
-    let paths = &[folder.as_str()];
+pub fn loc(folder: &str) -> usize {
+    let paths = &[folder];
     // Exclude any path that contains any of these strings.
     let target = format!("{folder}/target");
     let excluded = &[target.as_str()];

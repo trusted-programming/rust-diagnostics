@@ -11,6 +11,7 @@ use persistence::load_loc_map;
 pub fn counting() 
 {
     let map: BTreeMap<String, Vec<Warning>> = load_map();
+    dbg!(&map);
     let loc_map: BTreeMap<String, usize> = load_loc_map();
     let mut s: usize = 0;
     map.iter().for_each(|(k, v)| {

@@ -2,6 +2,6 @@ use crate::warnings;
 
 #[test]
 fn main() {
-    let w = warnings("../..".to_string());
+    let w = warnings("../..");
     dbg!(&w.get("src/main.rs").unwrap().len());
 }

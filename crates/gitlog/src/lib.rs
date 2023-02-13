@@ -1,15 +1,31 @@
 #[cfg(test)]
 pub mod test;
 
-use git2::Repository;
+use std::collections::BTreeMap;
 
-/// path is the folder where git repository has been checked out return the URL of the remote
-/// repository and the hashes of the commit history in the order of time (oldest first)
+use git2::Repository;
+use serde::Serialize;
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize)]
+pub struct Log {
+    pub url: String,
+    pub hash: String,
+    pub timestamp: i64,
+}
+/// 
+/// Obtain the commit logs from a git repository at $path,
+/// which is the folder where the git repository has been checked out. 
+///
+/// Return the URL of the remote repository, the number of revisions, and the table of the commit
+/// revisions in the order of time (oldest first)
 ///
 /// Upon an error, return empty URL and Hashes
-pub fn gitlog(path: &str) -> (String, Vec<String>) {
+///
+pub fn gitlog(path: &str) -> (String, usize, BTreeMap<String, Log>) {
     let mut url = "".to_string();
-    let mut hashes = Vec::new();
+    let mut logs = BTreeMap::new();
+    let mut i: usize = 0;
     if let Ok(repo) = Repository::open(path) {
         if let Ok(remote) = repo.find_remote("origin") {
             if let Some(u) = remote.url() {
@@ -23,7 +39,10 @@ pub fn gitlog(path: &str) -> (String, Vec<String>) {
                         if let Ok(id) = id {
                             if let Ok(commit) = repo.find_commit(id) {
                                 let hash = format!("{}", commit.id());
-                                hashes.push(hash);
+                                let timestamp = commit.author().when().seconds();
+                                i = i.saturating_add(1);
+                                let log = Log {url: url.clone(), hash: hash.clone(), timestamp };
+                                logs.insert(format!("{i:08}"), log);
                             } else {
                                 println!("================== Cannot get the commit {id:?}");
                             }
@@ -43,7 +62,7 @@ pub fn gitlog(path: &str) -> (String, Vec<String>) {
     } else {
         println!("================== Cannot open the repository at {path}");
     }
-    (url, hashes)
+    (url, i, logs)
 }
 
 /// functionality is the same as running the following commands
@@ -51,7 +70,7 @@ pub fn gitlog(path: &str) -> (String, Vec<String>) {
 /// cd $folder
 /// git checkout $commit_id
 /// ```
-pub fn checkout(folder: String, commit_id: String) {
+pub fn checkout(folder: &str, commit_id: String) {
     if let Ok(repo) = git2::Repository::open(folder) {
         if let Ok(oid) = git2::Oid::from_str(&commit_id) {
             if let Ok(commit) = repo.find_commit(oid) {

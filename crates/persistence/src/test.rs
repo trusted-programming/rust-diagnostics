@@ -1,6 +1,5 @@
 use crate::save_value;
 use crate::save_map;
-use crate::save_table;
 use crate::update_set;
 use gitlog::gitlog;
 use gitlog::checkout;
@@ -9,16 +8,20 @@ use warning::loc;
 
 #[test]
 fn main() {
-    let (url, hashes) = gitlog("/tmp/diag");
-    let _ = save_table(url.clone(), hashes.clone());
-    let _ = update_set("projects".to_string(), url.clone());
-    let mut i: i32 = 0;
-    for h in hashes {
-        i += 1;
-        checkout("/tmp/diag".to_string(), h.clone());
-        let w = warnings("/tmp/diag".to_string());
-        let _ = save_map(format!("{url}->{i:08}"), w);
-        let loc = loc("/tmp/diag".to_string());
-        let _ = save_value(format!("{url}->{i:08}->loc"), format!("{loc}"));
+    let folder = "/tmp/diag";
+    if let Ok(new) = update_set("projects".to_string(), folder.to_string()) {
+        if new {
+            let (url, n, logs) = gitlog(folder);
+            let _ = save_value(folder.to_string(), url.clone());
+            let _ = save_value(format!("{url}->revisions"), format!("{n}"));
+            let _ = save_map(url.clone(), logs.clone());
+            for (i, l) in &logs {
+                checkout(folder, l.hash.clone());
+                let w = warnings(folder);
+                let _ = save_map(format!("{url}->{i:08}->warning"), w);
+                let loc = loc(folder);
+                let _ = save_value(format!("{url}->{i:08}->loc"), format!("{loc}"));
+            }
+        }
     }
 }
