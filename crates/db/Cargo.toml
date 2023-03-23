@@ -1,0 +1,26 @@
+[package]
+name = "db"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "save"
+path = "src/lib.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+redis = {version = "0.22.3", optional = true}
+tikv-client = {version = "0.1", optional = true}
+tokio = { version = "1.5", features = ["full"], optional = true }
+futures = { version = "0.3", optional = true}
+flate2 = "1.0.24"
+tar = "0.4.28"
+indicatif = "0.16.2"
+
+[features]
+#default=["tikv"]
+default=["redis"]
+redis=["dep:redis"]
+tikv=["dep:tikv-client", "dep:tokio", "dep:futures"]
