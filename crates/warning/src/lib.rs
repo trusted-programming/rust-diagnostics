@@ -267,52 +267,54 @@ pub fn warnings(folder: &str) -> BTreeMap<String, Vec<Warning>> {
     let mut map: BTreeMap<String, Vec<Warning>> = BTreeMap::new();
     let cargo = get_cargo();
     let manifest = format!("{folder}/Cargo.toml");
-    let mut args = vec![
-        "clippy".to_string(),
-        "--manifest-path".to_string(), 
-        manifest,
-        "--message-format=json".to_string(),
-        "--".to_string(),
-    ];
-    let flags = get_flags();
-    for flag in flags {
-        args.push(format!("-Wclippy::{flag}"));
-    }
-    if let Ok(mut command) = Command::new(cargo)
-        .args(args)
-        .stdout(Stdio::piped())
-        .spawn()
-    {
-        if let Some(take) = command.stdout.take() {
-            let reader = std::io::BufReader::new(take);
-            for message in cargo_metadata::Message::parse_stream(reader).flatten() {
-                if let Message::CompilerMessage(msg) = message {
-                    for s in msg.message.spans {
-                        if let Ok(x) = usize::try_from(s.byte_start) {
-                            if let Ok(y) = usize::try_from(s.byte_end) {
-                                if let Some(message_code) = &msg.message.code {
-                                    let r = Warning {
-                                        name: format!(
-                                            "#[{:?}({})",
-                                            msg.message.level,
-                                            message_code.clone().code
-                                        ),
-                                        start: x,
-                                        start_line: s.line_start,
-                                        // start_column: s.column_start,
-                                        end: y,
-                                        end_line: s.line_end,
-                                        // end_column: s.column_end,
-                                        suggestion: format!("{:?}", s.suggested_replacement),
-                                        note: format!("{:?}", sub_messages(&msg.message.children)),
-                                        fixed: false,
-                                    };
-                                    let filename = s.file_name;
-                                    match map.get_mut(&filename) {
-                                        Some(v) => v.push(r),
-                                        None => {
-                                            let v = vec![r];
-                                            map.insert(filename, v);
+    if std::path::Path::new(&manifest).exists() {
+        let mut args = vec![
+            "clippy".to_string(),
+            "--manifest-path".to_string(), 
+            manifest,
+            "--message-format=json".to_string(),
+            "--".to_string(),
+        ];
+        let flags = get_flags();
+        for flag in flags {
+            args.push(format!("-Wclippy::{flag}"));
+        }
+        if let Ok(mut command) = Command::new(cargo)
+            .args(args)
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            if let Some(take) = command.stdout.take() {
+                let reader = std::io::BufReader::new(take);
+                for message in cargo_metadata::Message::parse_stream(reader).flatten() {
+                    if let Message::CompilerMessage(msg) = message {
+                        for s in msg.message.spans {
+                            if let Ok(x) = usize::try_from(s.byte_start) {
+                                if let Ok(y) = usize::try_from(s.byte_end) {
+                                    if let Some(message_code) = &msg.message.code {
+                                        let r = Warning {
+                                            name: format!(
+                                                "#[{:?}({})",
+                                                msg.message.level,
+                                                message_code.clone().code
+                                            ),
+                                            start: x,
+                                            start_line: s.line_start,
+                                            // start_column: s.column_start,
+                                            end: y,
+                                            end_line: s.line_end,
+                                            // end_column: s.column_end,
+                                            suggestion: format!("{:?}", s.suggested_replacement),
+                                            note: format!("{:?}", sub_messages(&msg.message.children)),
+                                            fixed: false,
+                                        };
+                                        let filename = s.file_name;
+                                        match map.get_mut(&filename) {
+                                            Some(v) => v.push(r),
+                                            None => {
+                                                let v = vec![r];
+                                                map.insert(filename, v);
+                                            }
                                         }
                                     }
                                 }
@@ -321,8 +323,8 @@ pub fn warnings(folder: &str) -> BTreeMap<String, Vec<Warning>> {
                     }
                 }
             }
+            command.wait().ok();
         }
-        command.wait().ok();
     }
     map
 }
@@ -339,7 +341,11 @@ pub fn loc(folder: &str) -> usize {
     let config = Config::default();
     let mut languages = Languages::new();
     languages.get_statistics(paths, excluded, &config);
-    let rust = &languages[&LanguageType::Rust];
-    println!("Lines of code: {}", rust.code);
-    rust.code
+    if languages.contains_key(&LanguageType::Rust) {
+        let rust = &languages[&LanguageType::Rust];
+        println!("Lines of code: {}", rust.code);
+        rust.code
+    } else {
+        0
+    }
 }

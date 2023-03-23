@@ -4,17 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+db = { path = "../db" }
 gitlog = { path = "../gitlog" }
 warning = { path = "../warning" }
 function = { path = "../function" }
-redis = { version = "0.22.3", optional = true }
-skytable = { git = "https://github.com/skytable/client-rust", optional = true }
 serde = { version = "1.0.133", features = [ "derive" ] }
 serde_json = "1.0.89"
 structopt = "0.3.26"
-
-[features]
-#default = ["skytable"]
-default = ["redis"]
-redis = ["dep:redis"]
-skytable = ["dep:skytable"]
+grpcio-sys = "0.12.1"

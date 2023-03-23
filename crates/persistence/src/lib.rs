@@ -1,36 +1,3 @@
-#[cfg(test)]
-pub mod test;
-
-#[cfg(feature = "skytable")]
-use skytable::actions::Actions;
-#[cfg(feature = "skytable")]
-use skytable::{Connection, SkyResult};
-
-#[cfg(feature = "skytable")]
-///
-/// save the key-value table into skytable
-///
-/// # Errors
-/// return () if `skytable` cannot connect
-pub fn save_table(key: String, value: Vec<String>) -> SkyResult<()> {
-    let mut con = Connection::new("127.0.0.1", 2003)?;
-    con.del(key.clone())?;
-    if let Ok(v) = serde_json::to_string(&value) {
-        con.set(key.clone(), v)?;
-    }
-    value
-        .into_iter()
-        .for_each(|hash| match con.get::<String>(&hash) {
-            Ok(_) => {
-                con.update(&hash, key.clone()).ok();
-            }
-            Err(_) => {
-                con.set(&hash, key.clone()).ok();
-            }
-        });
-    Ok(())
-}
-
 #[cfg(feature = "redis")]
 extern crate redis;
 #[cfg(feature = "redis")]
@@ -192,10 +159,11 @@ pub fn load_loc_map() -> BTreeMap<String,usize> {
                 let n = n.parse::<usize>().unwrap();
                 for i in 1..n {
                     let k = format!("{url}->{i:08}->loc");
-                    let loc: String = con.get(&k).unwrap();
-                    let loc = loc.replace('"', "");
-                    let loc = loc.parse::<usize>().unwrap();
-                    map.insert(k.clone(), loc);              
+                    if let Ok(loc) = con.get::<String, String>(k.clone()) {
+                        let loc = loc.replace('"', "");
+                        let loc = loc.parse::<usize>().unwrap();
+                        map.insert(k.clone(), loc);              
+                    }
                 }
             });
         }

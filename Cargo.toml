@@ -17,6 +17,7 @@ keywords = ["clippy", "diagnostics"]
 license = "Apache-2.0"
 
 [dependencies]
+db = { path = "crates/db" }
 persistence = { path = "crates/persistence" }
 gitlog = { path = "crates/gitlog", optional = true }
 warning = { path = "crates/warning", optional = true }
