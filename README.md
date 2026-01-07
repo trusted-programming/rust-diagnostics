@@ -287,6 +287,12 @@ warning is and the inserted markup hints already shifted the original line numbe
 
 ## Counting warnings
 
+To count the number of warnings and calculate the warnings per KLOC (thousand lines of code), use the `--count` (or `-c`) option:
+```bash
+rust-diagnostics --count
+```
+This will run clippy, group warnings by type, and display the total count alongside the lines of code in the `src` directory.
+
 An alternative to count warnings (probably quicker) is to use "cargo lintcheck".
 
 ## Acknowledgement

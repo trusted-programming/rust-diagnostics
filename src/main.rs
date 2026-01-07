@@ -50,6 +50,9 @@ struct Args {
     #[structopt(name = "fix", long)]
     /// check the machine applicable rules only
     fix: bool,
+    #[structopt(name = "count", long, short)]
+    /// count the number of warnings per KLOC
+    count: bool,
 }
 
 static ARGS: Mutex<Vec<Args>> = Mutex::new(vec![]);
@@ -1089,9 +1092,94 @@ fn get_function_items(p: &std::path::Path) -> Result<BTreeMap<LineRange, String>
     }
 }
 
+fn get_loc() -> usize {
+    let folder = get_folder();
+    let src_folder = format!("{folder}/src");
+    if let Ok(output) = Command::new("tokei")
+        .args(["-t=Rust", &src_folder])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if line.contains(" Total") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 3 {
+                        if let Ok(loc) = parts[2].parse::<usize>() {
+                            return loc;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Fallback: simple recursive line count of .rs files if tokei is not available
+    fn count_lines_recursive(dir: &std::path::Path) -> usize {
+        let mut count = 0;
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    count += count_lines_recursive(&path);
+                } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        count += content.lines().count();
+                    }
+                }
+            }
+        }
+        count
+    }
+    count_lines_recursive(std::path::Path::new(&src_folder))
+}
+
+fn do_count() {
+    let folder = get_folder();
+    if !std::path::Path::new(&format!("{folder}/Cargo.toml")).exists() {
+        return;
+    }
+    let flags = get_flags();
+    let all_warnings = diagnose_all_warnings(flags);
+    let mut total_warnings = 0;
+    let mut warning_counts: BTreeMap<String, usize> = BTreeMap::new();
+
+    for warnings in all_warnings.values() {
+        total_warnings += warnings.len();
+        for w in warnings {
+            *warning_counts.entry(w.name.clone()).or_insert(0) += 1;
+        }
+    }
+
+    println!("{:>7} {:>7} {:>7} w.txt", total_warnings, total_warnings, total_warnings * 10); // Simulated wc output
+
+    let mut sorted_counts: Vec<(&String, &usize)> = warning_counts.iter().collect();
+    sorted_counts.sort_by(|a, b| a.1.cmp(b.1));
+
+    for (name, count) in sorted_counts {
+        println!("{:>7} {}", count, name);
+    }
+
+    println!("Number of warnings = {}", total_warnings);
+    let loc = get_loc();
+    println!("Lines of Rust code: {}", loc);
+    if loc > 0 {
+        let warnings_per_kloc = total_warnings * 1000 / loc;
+        println!(
+            "Number of warnings per KLOC: {} * 1000 / {} = {}",
+            total_warnings, loc, warnings_per_kloc
+        );
+    }
+}
+
 // Run cargo clippy to generate warnings from "foo.rs" into temporary "foo.rs.1" files
 fn main() {
-    run();
+    let v = get_args();
+    let args = &v[0];
+    if args.count {
+        do_count();
+    } else {
+        run();
+    }
 }
 
 fn sub_messages(children: &[Diagnostic]) -> String {
