@@ -53,6 +53,9 @@ struct Args {
     #[structopt(name = "count", long, short)]
     /// count the number of warnings per KLOC
     count: bool,
+    #[structopt(name = "save", long)]
+    /// save the default clippy rules into a config file
+    save: bool,
 }
 
 static ARGS: Mutex<Vec<Args>> = Mutex::new(vec![]);
@@ -1163,12 +1166,30 @@ fn do_count() {
     }
 }
 
+fn do_save() {
+    let flags = get_flags();
+    let mut content = String::from("[target.'cfg(all())']\nrustflags = [\n");
+    for flag in flags {
+        content.push_str(&format!("\t\"-Wclippy::{}\",\n", flag));
+    }
+    content.push_str("]\n");
+
+    let folder = get_folder();
+    let filename = format!("{}/config.toml", folder);
+    if let Ok(mut file) = std::fs::File::create(&filename) {
+        file.write_all(content.as_bytes()).ok();
+        println!("Saved configuration to {}", filename);
+    }
+}
+
 // Run cargo clippy to generate warnings from "foo.rs" into temporary "foo.rs.1" files
 fn main() {
     let v = get_args();
     let args = &v[0];
     if args.count {
         do_count();
+    } else if args.save {
+        do_save();
     } else {
         run();
     }
@@ -1248,7 +1269,7 @@ mod tests {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         };
         let dir = std::path::Path::new(&temp_dir);
         if dir.exists() {
@@ -1424,7 +1445,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
             single:true,
             location: false,
             mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1452,7 +1473,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
             };
             my_args(args);
             run();
@@ -1487,7 +1508,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1516,7 +1537,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
             };
             my_args(args);
             run();
@@ -1552,7 +1573,7 @@ fn main() {
             single: true,
             location: false,
             mixed: true,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         };
         my_args(args);
 
@@ -1567,7 +1588,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: true,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1591,7 +1612,7 @@ fn main() {
             single: true,
             location: true,
             mixed: true,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         };
         my_args(args);
 
@@ -1606,7 +1627,7 @@ fn main() {
                 single: true,
                 location: true,
                 mixed: true,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1630,7 +1651,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         };
         my_args(args);
 
@@ -1645,7 +1666,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1837,7 +1858,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1864,7 +1885,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
             };
             my_args(args);
             run();
@@ -1985,7 +2006,7 @@ fn main() {
                     single: true,
                     location: false,
                     mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
                 },
                 "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
                 rd_run
@@ -2009,7 +2030,7 @@ fn main() {
                     single: true,
                     location: false,
                     mixed: false,
-                    fix: true, count: false,
+                    fix: true, count: false, save: false,
                 },
                 "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
                 rd_run
@@ -2025,7 +2046,7 @@ fn main() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
+                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false, save: false },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -2035,7 +2056,7 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
+                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false, count: false, save: false },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -2046,7 +2067,7 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false, save: false },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -2104,7 +2125,7 @@ fn main() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
+                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false, save: false },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -2114,7 +2135,7 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
+                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false, count: false, save: false },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -2125,7 +2146,7 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false, save: false },
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
         There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
@@ -2184,13 +2205,13 @@ fn main() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
-                flags: vec![], confirm: false, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
+                flags: vec![], confirm: false, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false, save: false },
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files, 0 has been fixed.
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir), 
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false, save: false },
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files, 0 has been fixed.
         "###);
@@ -2209,7 +2230,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @"");
      }
@@ -2227,8 +2248,75 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false,
+            fix: false, count: false, save: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @"");
+    }
+
+    #[test]
+    #[serial]
+    fn save_config_test() {
+        let temp_dir = get_temp_dir();
+        let args = Args {
+            folder: Some(temp_dir.clone()),
+            flags: vec![],
+            patch: None,
+            confirm: false,
+            pair: false,
+            function: false,
+            single: false,
+            location: false,
+            mixed: false,
+            fix: false,
+            count: false,
+            save: true,
+        };
+        my_args(args);
+        let dir = std::path::Path::new(&temp_dir);
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        std::fs::create_dir_all(dir).unwrap();
+        do_save();
+        let config_path = dir.join("config.toml");
+        assert!(config_path.exists());
+        let content = std::fs::read_to_string(config_path).unwrap();
+        assert!(content.contains("[target.'cfg(all())']"));
+        assert!(content.contains("rustflags = ["));
+        assert!(content.contains("-Wclippy::ptr_arg"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    #[serial]
+    fn save_config_fix_test() {
+        let temp_dir = get_temp_dir();
+        let args = Args {
+            folder: Some(temp_dir.clone()),
+            flags: vec![],
+            patch: None,
+            confirm: false,
+            pair: false,
+            function: false,
+            single: false,
+            location: false,
+            mixed: false,
+            fix: true,
+            count: false,
+            save: true,
+        };
+        my_args(args);
+        let dir = std::path::Path::new(&temp_dir);
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        std::fs::create_dir_all(dir).unwrap();
+        do_save();
+        let config_path = dir.join("config.toml");
+        assert!(config_path.exists());
+        let content = std::fs::read_to_string(config_path).unwrap();
+        assert!(content.contains("-Wclippy::assertions_on_result_states"));
+        assert!(!content.contains("-Wclippy::ptr_arg"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
