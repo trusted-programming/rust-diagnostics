@@ -16,7 +16,7 @@ use tree_sitter_parsers::parse;
 
 use structopt::StructOpt;
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(StructOpt, Debug, Clone, Default)]
 struct Args {
     #[structopt(name = "folder", long)]
     /// the folder of the repository, default to "."
@@ -63,7 +63,7 @@ fn get_args() -> Vec<Args> {
 }
 
 fn set_args() {
-    if Result::unwrap(Mutex::lock(&ARGS)).len() == 0 {
+    if Result::unwrap(Mutex::lock(&ARGS)).is_empty() {
         let params = Args::from_args();
         Result::unwrap(ARGS.lock()).push(params);
     }
@@ -117,7 +117,7 @@ fn markup(source: &[u8], map: Vec<Warning>) -> Vec<u8> {
         }
         output.push(*c);
     }
-    return output
+    output
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -722,21 +722,17 @@ fn get_current_id() -> Option<git2::Oid> {
     }
 }
 
-fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff> {
+fn get_diff(repo: &git2::Repository, id: String) -> Option<git2::Diff<'_>> {
     if let Ok(head) = repo.head() {
         if let Some(target) = head.target() {
             if let Ok(c1) = repo.find_commit(target) {
                 if let Ok(oid) = git2::Oid::from_str(&id) {
                     if let Ok(c2) = repo.find_commit(oid) {
-                        let a = if let Ok(a) = c1.tree() { Some(a) } else { None };
-                        let b = if let Ok(b) = c2.tree() { Some(b) } else { None };
+                        let a = c1.tree().ok();
+                        let b = c2.tree().ok();
                         let mut diffopts2 = git2::DiffOptions::new();
                         diffopts2.context_lines(0);
-                        if let Ok(diff) = repo.diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2)) {
-                            Some(diff)
-                        } else {
-                            None
-                        }
+                        repo.diff_tree_to_tree(a.as_ref(), b.as_ref(), Some(&mut diffopts2)).ok()
                     } else {
                         None
                     }
@@ -817,11 +813,7 @@ fn fprint_hunks(file: String, map: BTreeMap<String, Vec<Hunk>>)
 
 fn u32_to_usize(x: u32) -> usize
 {
-    if let Ok(y) = usize::try_from(x) {
-        y
-    } else {
-        0
-    }
+    usize::try_from(x).unwrap_or_default()
 }
 
 fn get_hunks(diff: git2::Diff) -> BTreeMap<String, Vec<Hunk>> {
@@ -1256,7 +1248,7 @@ mod tests {
             single: true,
             location: false,
             mixed: false,
-            fix: false,
+            fix: false, count: false,
         };
         let dir = std::path::Path::new(&temp_dir);
         if dir.exists() {
@@ -1432,7 +1424,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
             single:true,
             location: false,
             mixed: false,
-            fix: false,
+            fix: false, count: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1460,7 +1452,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false,
+            fix: false, count: false,
             };
             my_args(args);
             run();
@@ -1495,7 +1487,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false,
+            fix: false, count: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1524,7 +1516,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false,
+            fix: false, count: false,
             };
             my_args(args);
             run();
@@ -1560,7 +1552,7 @@ fn main() {
             single: true,
             location: false,
             mixed: true,
-            fix: false,
+            fix: false, count: false,
         };
         my_args(args);
 
@@ -1575,7 +1567,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: true,
-            fix: false,
+            fix: false, count: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1599,7 +1591,7 @@ fn main() {
             single: true,
             location: true,
             mixed: true,
-            fix: false,
+            fix: false, count: false,
         };
         my_args(args);
 
@@ -1614,7 +1606,7 @@ fn main() {
                 single: true,
                 location: true,
                 mixed: true,
-            fix: false,
+            fix: false, count: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1638,7 +1630,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false,
+            fix: false, count: false,
         };
         my_args(args);
 
@@ -1653,7 +1645,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false,
+            fix: false, count: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1845,7 +1837,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false,
+            fix: false, count: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1872,7 +1864,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false,
+            fix: false, count: false,
             };
             my_args(args);
             run();
@@ -1898,14 +1890,15 @@ fn main() {
     where F: Fn(&str),
     {
         my_args(args.clone());
-        let git_dir = std::path::Path::new("{temp_dir}/.git");
+        let git_dir_str = format!("{}/.git", temp_dir);
+        let git_dir = std::path::Path::new(&git_dir_str);
         if !git_dir.exists() {
             let fo = git2::FetchOptions::new();
             let co = git2::build::CheckoutBuilder::new();
             git2::build::RepoBuilder::new()
                 .fetch_options(fo)
                 .with_checkout(co)
-                .clone(".git", std::path::Path::new(temp_dir.as_str()))
+                .clone(".", std::path::Path::new(temp_dir.as_str()))
                 .ok();
             println!();
         }
@@ -1915,11 +1908,7 @@ fn main() {
                 let diagnostics_folder = get_diagnostics_folder();
                 run(rev2.as_str());
                 run(rev2.as_str()); // second time run
-                if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
-                    s
-                } else {
-                    String::new()
-                }
+                read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap_or_default()
             } else {
                 String::new()
             }
@@ -1939,14 +1928,15 @@ fn main() {
     where F: Fn(&str),
     {
         my_args(args.clone());
-        let git_dir = std::path::Path::new("{temp_dir}/.git");
+        let git_dir_str = format!("{}/.git", temp_dir);
+        let git_dir = std::path::Path::new(&git_dir_str);
         if !git_dir.exists() {
             let fo = git2::FetchOptions::new();
             let co = git2::build::CheckoutBuilder::new();
             git2::build::RepoBuilder::new()
                 .fetch_options(fo)
                 .with_checkout(co)
-                .clone(".git", std::path::Path::new(temp_dir.as_str()))
+                .clone(".", std::path::Path::new(temp_dir.as_str()))
                 .ok();
             println!();
         }
@@ -1955,11 +1945,7 @@ fn main() {
             if let Some(rev2) = args.patch {
                 let diagnostics_folder = get_diagnostics_folder();
                 run(rev2.as_str());
-                if let Ok(s) = read_to_string(format!("{diagnostics_folder}/diagnostics.log")) {
-                    s
-                } else {
-                    String::new()
-                }
+                read_to_string(format!("{diagnostics_folder}/diagnostics.log")).unwrap_or_default()
             } else {
                 String::new()
             }
@@ -1999,12 +1985,12 @@ fn main() {
                     single: true,
                     location: false,
                     mixed: false,
-            fix: false,
+            fix: false, count: false,
                 },
                 "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
                 rd_run
             ),
-            "There are 30 warnings in 1 files, 0 has been fixed.\n"
+            "There are 23 warnings in 1 files, 0 has been fixed.\n"
         );
     }
 
@@ -2023,12 +2009,12 @@ fn main() {
                     single: true,
                     location: false,
                     mixed: false,
-                    fix: true,
+                    fix: true, count: false,
                 },
                 "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
                 rd_run
             ),
-            "There are 32 warnings in 1 files, 0 has been fixed.\n"
+            "There are 12 warnings in 1 files, 0 has been fixed.\n"
         );
     }
 
@@ -2039,9 +2025,9 @@ fn main() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false},
+                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files, 0 has been fixed.
+        There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
         -    if output.len() != 0 {
@@ -2049,9 +2035,9 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false},
+                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files, 0 has been fixed.
+        There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
             if output.len() != 0 {
@@ -2060,9 +2046,9 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files, 0 has been fixed.
+        There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
         fn remove_previously_generated_files() {
@@ -2118,9 +2104,9 @@ fn main() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false},
+                flags: vec![], confirm: true, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files, 0 has been fixed.
+        There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
         -    if output.len() != 0 {
@@ -2128,9 +2114,9 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false},
+                flags: vec![], confirm: true, pair: true, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files, 0 has been fixed.
+        There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
             if output.len() != 0 {
@@ -2139,9 +2125,9 @@ fn main() {
         "###);
         insta::assert_snapshot!(rd_setup_twice(temp_dir.clone(), Args { folder: Some(temp_dir),
                 patch: Some("375981bb06cf819332c202cdd09d5a8c48e296db".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false},
                 "512236bac29f09ca798c93020ce377c30a4ed2a5", rd_run), @r###"
-        There are 30 warnings in 1 files, 0 has been fixed.
+        There are 29 warnings in 1 files, 0 has been fixed.
         ##[Warning(clippy::len_zero)
         @@ -107 +107 @@ fn remove_previously_generated_files() {
         fn remove_previously_generated_files() {
@@ -2198,13 +2184,13 @@ fn main() {
         let temp_dir = get_temp_dir();
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir.clone()),
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
-                flags: vec![], confirm: false, pair: false, function: false, single: true,  location: false, mixed: false, fix: false},
+                flags: vec![], confirm: false, pair: false, function: false, single: true,  location: false, mixed: false, fix: false, count: false},
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files, 0 has been fixed.
         "###);
         insta::assert_snapshot!(rd_setup(temp_dir.clone(), Args { folder: Some(temp_dir), 
                 patch: Some("035ef892fa57fe644ef76065849ebd025869614d".to_string()),
-                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false},
+                flags: vec![], confirm: true, pair: true, function: true, single: true,  location: false, mixed: false, fix: false, count: false},
                 "375981bb06cf819332c202cdd09d5a8c48e296db", rd_run), @r###"
         There are 27 warnings in 1 files, 0 has been fixed.
         "###);
@@ -2223,7 +2209,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false,
+            fix: false, count: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @"");
      }
@@ -2241,7 +2227,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false,
+            fix: false, count: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @"");
     }
