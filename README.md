@@ -312,24 +312,21 @@ Two Claude Code skills automate the Li et al. ([arXiv:2310.11738](https://arxiv.
 
 ### Installation
 
-```bash
-# Clone the marketplace
-git clone https://github.com/yijunyu/claude-skills-marketplace /tmp/claude-skills-marketplace
+Add the marketplace and install with a single command inside Claude Code:
 
-# Install the skill
-mkdir -p ~/.claude/skills
-cp -r /tmp/claude-skills-marketplace/skills/rust-warning-reduction ~/.claude/skills/
+```
+/plugin add-marketplace https://github.com/yijunyu/claude-skills-marketplace
+/plugin install rust-warning-reduction@claude-skills-marketplace
 ```
 
-Alternatively, install as Claude Code commands (usable with `/warn-identify` and `/warn-reduce`):
+Or browse interactively via `/plugin > Discover`.
+
+**Manual installation:**
 
 ```bash
-mkdir -p ~/.claude/commands
-# warn-identify
-curl -o ~/.claude/commands/warn-identify.md \
-  https://raw.githubusercontent.com/yijunyu/claude-skills-marketplace/main/skills/rust-warning-reduction/SKILL.md
-
-# Or copy from this repo's .claude/commands/ after cloning
+git clone https://github.com/yijunyu/claude-skills-marketplace /tmp/claude-skills-marketplace
+mkdir -p ~/.claude/skills
+cp -r /tmp/claude-skills-marketplace/skills/rust-warning-reduction ~/.claude/skills/
 ```
 
 ### `/warn-identify` — Analyse warning distribution
