@@ -295,6 +295,17 @@ This will run clippy, group warnings by type, and display the total count alongs
 
 An alternative to count warnings (probably quicker) is to use "cargo lintcheck".
 
+### Warnings per KLOC
+
+To print just the warnings-per-KLOC ratio as a single number, use the `--warning-per-KLOC` (or `-q`) option:
+```bash
+rust-diagnostics -q
+```
+This uses the [`tokei`](https://crates.io/crates/tokei) library to count lines of Rust code accurately (excluding comments and blank lines), then outputs the ratio as a floating-point number, e.g.:
+```
+12.34
+```
+
 ## Acknowledgement
 
 - [David Wood](https://davidtw.co) offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;
@@ -305,3 +316,4 @@ An alternative to count warnings (probably quicker) is to use "cargo lintcheck".
 - Haitao Wu made some improvement on the `unwrapped_used.txl` rule.
 - [Dr Nghi Bui](https://github.com/bdqnghi) suggested an idea to create mixed pairs.
 - [Josh Triplett](https://github.com/joshtriplett) implemented the underlying `git2-rs` which wraps the `libgit2` library in Rust.
+- Dr Dong Qiu requested the `--warning-per-KLOC` (`-q`) feature to measure warning density using the `tokei` library.
