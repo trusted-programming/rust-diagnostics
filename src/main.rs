@@ -1094,9 +1094,8 @@ fn get_function_items(p: &std::path::Path) -> Result<BTreeMap<LineRange, String>
 
 fn get_loc() -> usize {
     let folder = get_folder();
-    let src_folder = format!("{folder}/src");
     let mut languages = Languages::new();
-    languages.get_statistics(&[&src_folder], &[], &Config::default());
+    languages.get_statistics(&[&folder], &[], &Config::default());
     languages
         .get(&LanguageType::Rust)
         .map(|lang| lang.code)
