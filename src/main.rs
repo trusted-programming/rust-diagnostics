@@ -1,5 +1,6 @@
 use cargo_metadata::{diagnostic::Diagnostic, Message};
 use once_cell::sync::Lazy;
+use tokei::{Config, LanguageType, Languages};
 use serde::{Serialize, Deserialize};
 use std::{
     collections::BTreeMap,
@@ -56,6 +57,10 @@ struct Args {
     #[structopt(name = "save", long)]
     /// save the default clippy rules into a config file
     save: bool,
+    #[structopt(name = "warning-per-KLOC", long)]
+    #[structopt(name = "q", short)]
+    /// print the number of warnings per KLOC of Rust code
+    warning_per_kloc: bool,
 }
 
 static ARGS: Mutex<Vec<Args>> = Mutex::new(vec![]);
@@ -1090,42 +1095,12 @@ fn get_function_items(p: &std::path::Path) -> Result<BTreeMap<LineRange, String>
 fn get_loc() -> usize {
     let folder = get_folder();
     let src_folder = format!("{folder}/src");
-    if let Ok(output) = Command::new("tokei")
-        .args(["-t=Rust", &src_folder])
-        .output()
-    {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if line.contains(" Total") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 3 {
-                        if let Ok(loc) = parts[2].parse::<usize>() {
-                            return loc;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // Fallback: simple recursive line count of .rs files if tokei is not available
-    fn count_lines_recursive(dir: &std::path::Path) -> usize {
-        let mut count = 0;
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    count += count_lines_recursive(&path);
-                } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rs") {
-                    if let Ok(content) = std::fs::read_to_string(path) {
-                        count += content.lines().count();
-                    }
-                }
-            }
-        }
-        count
-    }
-    count_lines_recursive(std::path::Path::new(&src_folder))
+    let mut languages = Languages::new();
+    languages.get_statistics(&[&src_folder], &[], &Config::default());
+    languages
+        .get(&LanguageType::Rust)
+        .map(|lang| lang.code)
+        .unwrap_or(0)
 }
 
 fn do_count() {
@@ -1166,6 +1141,23 @@ fn do_count() {
     }
 }
 
+fn do_warning_per_kloc() {
+    let folder = get_folder();
+    if !std::path::Path::new(&format!("{folder}/Cargo.toml")).exists() {
+        return;
+    }
+    let flags = get_flags();
+    let all_warnings = diagnose_all_warnings(flags);
+    let total_warnings: usize = all_warnings.values().map(|v| v.len()).sum();
+    let loc = get_loc();
+    if loc > 0 {
+        let warnings_per_kloc = total_warnings as f64 * 1000.0 / loc as f64;
+        println!("{:.2}", warnings_per_kloc);
+    } else {
+        println!("0");
+    }
+}
+
 fn do_save() {
     let flags = get_flags();
     let mut content = String::from("[target.'cfg(all())']\nrustflags = [\n");
@@ -1186,7 +1178,9 @@ fn do_save() {
 fn main() {
     let v = get_args();
     let args = &v[0];
-    if args.count {
+    if args.warning_per_kloc {
+        do_warning_per_kloc();
+    } else if args.count {
         do_count();
     } else if args.save {
         do_save();
@@ -1269,7 +1263,7 @@ mod tests {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         };
         let dir = std::path::Path::new(&temp_dir);
         if dir.exists() {
@@ -1445,7 +1439,7 @@ requested on the command line with `-W clippy::unwrap-used`*/;
             single:true,
             location: false,
             mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1473,7 +1467,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
             };
             my_args(args);
             run();
@@ -1508,7 +1502,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1537,7 +1531,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
             };
             my_args(args);
             run();
@@ -1573,7 +1567,7 @@ fn main() {
             single: true,
             location: false,
             mixed: true,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         };
         my_args(args);
 
@@ -1588,7 +1582,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: true,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1612,7 +1606,7 @@ fn main() {
             single: true,
             location: true,
             mixed: true,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         };
         my_args(args);
 
@@ -1627,7 +1621,7 @@ fn main() {
                 single: true,
                 location: true,
                 mixed: true,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1651,7 +1645,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         };
         my_args(args);
 
@@ -1666,7 +1660,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
             };
             my_args(args);
             let diagnostics_folder = get_diagnostics_folder();
@@ -1858,7 +1852,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         };
         my_args(args);
         if let Ok(update_commit) = setup(temp_dir.clone(),
@@ -1885,7 +1879,7 @@ fn main() {
                 single: true,
                 location: false,
                 mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
             };
             my_args(args);
             run();
@@ -2006,7 +2000,7 @@ fn main() {
                     single: true,
                     location: false,
                     mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
                 },
                 "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1",
                 rd_run
@@ -2230,7 +2224,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @"");
      }
@@ -2248,7 +2242,7 @@ fn main() {
             single: true,
             location: false,
             mixed: false,
-            fix: false, count: false, save: false,
+            fix: false, count: false, save: false, warning_per_kloc: false,
         }, "2468ad1e3c0183f4a94859bcc5cea04ee3fc4ab1", diff_run), 
         @"");
     }
@@ -2270,6 +2264,7 @@ fn main() {
             fix: false,
             count: false,
             save: true,
+            warning_per_kloc: false,
         };
         my_args(args);
         let dir = std::path::Path::new(&temp_dir);
@@ -2304,6 +2299,7 @@ fn main() {
             fix: true,
             count: false,
             save: true,
+            warning_per_kloc: false,
         };
         my_args(args);
         let dir = std::path::Path::new(&temp_dir);
