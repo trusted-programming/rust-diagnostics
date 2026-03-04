@@ -1,0 +1,13 @@
+{
+  "name": "rust-diagnostics",
+  "description": "Identify and iteratively eliminate high-frequency Clippy warnings using the Li et al. (arXiv:2310.11738) Pareto-based methodology. Provides warn-identify (ranked warning distribution) and warn-reduce (iterative elimination loop that stops at 18/KLOC).",
+  "version": "1.0.0",
+  "author": {
+    "name": "Yijun Yu",
+    "url": "https://github.com/yijunyu"
+  },
+  "homepage": "https://github.com/yijunyu/rust-diagnostics",
+  "repository": "https://github.com/yijunyu/rust-diagnostics",
+  "license": "MIT",
+  "keywords": ["rust", "clippy", "warnings", "code-quality", "linting", "warn-identify", "warn-reduce"]
+}
