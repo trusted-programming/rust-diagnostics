@@ -306,6 +306,106 @@ This uses the [`tokei`](https://crates.io/crates/tokei) library to count lines o
 12.34
 ```
 
+## Warning Reduction Skills (Claude Code)
+
+Two Claude Code skills automate the Li et al. ([arXiv:2310.11738](https://arxiv.org/abs/2310.11738)) methodology for iteratively reducing Clippy warning density. Warnings follow a Pareto distribution — the top-5 lint types typically account for >80% of all warnings. The target is **18 warnings/KLOC** (below the 21/KLOC crates-io average).
+
+### Installation
+
+```bash
+# Clone the marketplace
+git clone https://github.com/yijunyu/claude-skills-marketplace /tmp/claude-skills-marketplace
+
+# Install the skill
+mkdir -p ~/.claude/skills
+cp -r /tmp/claude-skills-marketplace/skills/rust-warning-reduction ~/.claude/skills/
+```
+
+Alternatively, install as Claude Code commands (usable with `/warn-identify` and `/warn-reduce`):
+
+```bash
+mkdir -p ~/.claude/commands
+# warn-identify
+curl -o ~/.claude/commands/warn-identify.md \
+  https://raw.githubusercontent.com/yijunyu/claude-skills-marketplace/main/skills/rust-warning-reduction/SKILL.md
+
+# Or copy from this repo's .claude/commands/ after cloning
+```
+
+### `/warn-identify` — Analyse warning distribution
+
+Invokes `rust-diagnostics --count` and `--warning-per-KLOC` to produce a ranked Pareto table showing which lint types dominate, their cumulative coverage, and whether auto-fix is available.
+
+**Usage** (inside Claude Code):
+```
+/warn-identify
+/warn-identify /path/to/project
+```
+
+**Example output:**
+```
+## Warning Analysis: .
+Density: 7.30 warnings/KLOC  [TARGET: ≤18/KLOC | crates-io avg: 21/KLOC]
+
+Rank  Count  Cumul%  Type                          Fixable?
+   1      4    25%   arithmetic_side_effects
+   2      3    44%   unwrap_used
+   3      2    56%   as_conversions
+   4      2    69%   cast_precision_loss
+   5      2    81%   manual_checked_ops
+   6      1    88%   default_numeric_fallback        [auto]
+   7      1    94%   float_arithmetic
+   8      1   100%   struct_excessive_bools
+
+Top-1 coverage: 25% | Top-5 coverage: 81%
+Status: BELOW 18/KLOC threshold
+```
+
+### `/warn-reduce` — Iterative elimination
+
+Targets the highest-frequency lint type per pass, applies the paper's fix strategy, verifies with `cargo build`, recounts, and loops. At **18/KLOC** it pauses and asks whether to continue with long-tail removals.
+
+**Usage** (inside Claude Code):
+```
+/warn-reduce
+/warn-reduce /path/to/project
+```
+
+**Fix strategies** (from Li et al.):
+
+| Warning Type | Strategy | Paper result |
+|---|---|---|
+| `default_numeric_fallback` | `cargo clippy --fix` / add type suffixes | 3,842 → 0 |
+| `arithmetic_side_effects` | `wrapping_add/sub/div` rewrites (3 TXL rules) | 1,919 → 682 |
+| `undocumented_unsafe_blocks` | Insert `// SAFETY:` comments via perl | 806 → 5 |
+| `missing_debug_implementations` | Add `#[derive(Debug)]` via perl | 160 → 8 |
+| `unwrap_used` / `expect_used` | `.expect("reason")` or `?` propagation | varies |
+| `manual_checked_ops` | Replace guarded division with `.checked_div()` | varies |
+| `cast_precision_loss` / `as_conversions` | Fixed-point integer arithmetic instead of float casts | varies |
+| Any other lint | `cargo clippy --fix` → apply suggestion → targeted `#[allow]` | varies |
+
+### Results on this project
+
+Running `/warn-reduce` on `rust-diagnostics` itself (all changes in `src/main.rs`):
+
+| Metric | Before | After |
+|---|---|---|
+| Warnings/KLOC | 7.30 | 0.00 |
+| Total warnings | 16 | 0 |
+| LOC | 2,192 | 2,195 |
+
+Fixes applied:
+
+| Warning | Count | Fix |
+|---|---|---|
+| `arithmetic_side_effects` | 4 | `saturating_add`, `saturating_mul`, `checked_div` |
+| `manual_checked_ops` | 2 | `if let Some(x) = a.checked_div(b)` |
+| `unwrap_used` | 3 | `.expect("ARGS mutex poisoned")` + `#[allow(clippy::expect_used)]` |
+| `cast_precision_loss` + `as_conversions` + `float_arithmetic` + `default_numeric_fallback` | 5 | Replaced `total as f64 * 1000.0 / loc as f64` with fixed-point integer arithmetic |
+| `struct_excessive_bools` | 1 | `#[allow]` with justification (CLI struct driven by `structopt`) |
+
+Since the project started below the 18/KLOC threshold, all 16 warnings were in the long-tail phase and were eliminated in a single pass.
+
 ## Acknowledgement
 
 - [David Wood](https://davidtw.co) offered the idea that we can use the `--message-format=json` option to get diagnostic information from the Rust compiler, which saves tremendous effort in modifying the Rust compiler. Now our solution is kind of independent from the Rust compiler implementations;

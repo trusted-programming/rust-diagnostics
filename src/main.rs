@@ -17,6 +17,7 @@ use tree_sitter_parsers::parse;
 
 use structopt::StructOpt;
 
+#[allow(clippy::struct_excessive_bools)] // CLI flags are inherently boolean; a state machine would not improve clarity here
 #[derive(StructOpt, Debug, Clone, Default)]
 struct Args {
     #[structopt(name = "folder", long)]
@@ -67,13 +68,16 @@ static ARGS: Mutex<Vec<Args>> = Mutex::new(vec![]);
 
 fn get_args() -> Vec<Args> {
     set_args();
-    Result::unwrap(ARGS.lock()).to_vec()
+    #[allow(clippy::expect_used)] // no recovery possible if the global ARGS mutex is poisoned
+    ARGS.lock().expect("ARGS mutex poisoned").to_vec()
 }
 
 fn set_args() {
-    if Result::unwrap(Mutex::lock(&ARGS)).is_empty() {
+    #[allow(clippy::expect_used)] // no recovery possible if the global ARGS mutex is poisoned
+    if ARGS.lock().expect("ARGS mutex poisoned").is_empty() {
         let params = Args::from_args();
-        Result::unwrap(ARGS.lock()).push(params);
+        #[allow(clippy::expect_used)] // no recovery possible if the global ARGS mutex is poisoned
+        ARGS.lock().expect("ARGS mutex poisoned").push(params);
     }
 }
 
@@ -1109,17 +1113,18 @@ fn do_count() {
     }
     let flags = get_flags();
     let all_warnings = diagnose_all_warnings(flags);
-    let mut total_warnings = 0;
+    let mut total_warnings: usize = 0;
     let mut warning_counts: BTreeMap<String, usize> = BTreeMap::new();
 
     for warnings in all_warnings.values() {
-        total_warnings += warnings.len();
+        total_warnings = total_warnings.saturating_add(warnings.len());
         for w in warnings {
-            *warning_counts.entry(w.name.clone()).or_insert(0) += 1;
+            let count = warning_counts.entry(w.name.clone()).or_insert(0);
+            *count = count.saturating_add(1);
         }
     }
 
-    println!("{:>7} {:>7} {:>7} w.txt", total_warnings, total_warnings, total_warnings * 10); // Simulated wc output
+    println!("{:>7} {:>7} {:>7} w.txt", total_warnings, total_warnings, total_warnings.saturating_mul(10)); // Simulated wc output
 
     let mut sorted_counts: Vec<(&String, &usize)> = warning_counts.iter().collect();
     sorted_counts.sort_by(|a, b| a.1.cmp(b.1));
@@ -1131,8 +1136,7 @@ fn do_count() {
     println!("Number of warnings = {}", total_warnings);
     let loc = get_loc();
     println!("Lines of Rust code: {}", loc);
-    if loc > 0 {
-        let warnings_per_kloc = total_warnings * 1000 / loc;
+    if let Some(warnings_per_kloc) = total_warnings.saturating_mul(1000).checked_div(loc) {
         println!(
             "Number of warnings per KLOC: {} * 1000 / {} = {}",
             total_warnings, loc, warnings_per_kloc
@@ -1149,9 +1153,9 @@ fn do_warning_per_kloc() {
     let all_warnings = diagnose_all_warnings(flags);
     let total_warnings: usize = all_warnings.values().map(|v| v.len()).sum();
     let loc = get_loc();
-    if loc > 0 {
-        let warnings_per_kloc = total_warnings as f64 * 1000.0 / loc as f64;
-        println!("{:.2}", warnings_per_kloc);
+    // Compute warnings/KLOC as fixed-point: multiply by 100_000 then divide, giving 2 decimal places
+    if let Some(scaled) = total_warnings.saturating_mul(100_000).checked_div(loc) {
+        println!("{}.{:02}", scaled / 100, scaled % 100);
     } else {
         println!("0");
     }
