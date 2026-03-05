@@ -55,10 +55,20 @@ pub fn apply_rewrites(rewrites: Vec<Rewrite>) {
             let start = rw.full_start as usize;
             let end = rw.full_end as usize;
 
-            if end > result.len() || start > end {
+            // AllowConstCast is a pure insertion: start == end, no bytes replaced.
+            let is_insertion = start == end;
+
+            if !is_insertion && (end > result.len() || start > end) {
                 eprintln!(
                     "warn-rewrite: offset out of range {}..{} in {:?} (len {})",
                     start, end, file, result.len()
+                );
+                continue;
+            }
+            if is_insertion && start > result.len() {
+                eprintln!(
+                    "warn-rewrite: insertion offset {} out of range in {:?} (len {})",
+                    start, file, result.len()
                 );
                 continue;
             }
@@ -66,9 +76,7 @@ pub fn apply_rewrites(rewrites: Vec<Rewrite>) {
             let replacement = generate_replacement(&rw);
             let replacement_bytes = replacement.as_bytes();
 
-            let mut new_result = Vec::with_capacity(
-                result.len() - (end - start) + replacement_bytes.len(),
-            );
+            let mut new_result = Vec::with_capacity(result.len() + replacement_bytes.len());
             new_result.extend_from_slice(&result[..start]);
             new_result.extend_from_slice(replacement_bytes);
             new_result.extend_from_slice(&result[end..]);
@@ -139,6 +147,10 @@ fn generate_replacement(rw: &Rewrite) -> String {
                 operand.clone()
             };
             format!("{}.wrapping_neg()", operand_wrapped)
+        }
+        RewriteKind::AllowConstCast => {
+            // Prepend the allow attribute on its own line before the item.
+            "#[allow(clippy::as_conversions)]\n".to_owned()
         }
     }
 }

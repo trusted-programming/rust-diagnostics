@@ -18,6 +18,7 @@ extern crate rustc_span;
 mod apply;
 mod callbacks;
 mod classify;
+mod fixup;
 mod visitor;
 
 use std::path::PathBuf;
@@ -69,6 +70,11 @@ pub enum RewriteKind {
     WrappingAssignOp { method: &'static str, lhs_snippet: String },
     /// `-x` → `x.wrapping_neg()`
     WrappingNeg { operand_ty: String },
+    /// Insert `#[allow(clippy::as_conversions)]\n` before a const item/fn that
+    /// contains `as` casts which cannot be rewritten (From/TryFrom not const-stable).
+    /// `full_start`..`full_end` spans the existing attribute line if already present,
+    /// otherwise both equal the byte offset of the first char of the item.
+    AllowConstCast,
 }
 
 fn main() {
@@ -102,6 +108,7 @@ fn run_direct(args: &[String]) {
     let mut lint = LintTarget::All;
     let mut folder: Option<PathBuf> = None;
     let mut dry_run = false;
+    let mut extra_cargo_args: Vec<String> = Vec::new();
     let mut i = 0;
 
     while i < args.len() {
@@ -123,7 +130,8 @@ fn run_direct(args: &[String]) {
                 folder = args.get(i).map(PathBuf::from);
             }
             "--dry-run" => dry_run = true,
-            _ => {}
+            // Forward any unrecognised flags (e.g. --workspace, --package) to cargo.
+            other => extra_cargo_args.push(other.to_owned()),
         }
         i += 1;
     }
@@ -131,19 +139,27 @@ fn run_direct(args: &[String]) {
     let folder = folder.unwrap_or_else(|| PathBuf::from("."));
     println!("warn-rewrite: running on {:?} for {:?}", folder, lint);
 
-    // Invoke via cargo check with RUSTC_WRAPPER pointing to ourselves
+    // Phase 1: rewrite pass via RUSTC_WRAPPER.
     let self_path = std::env::current_exe().expect("can't find own path");
     let status = process::Command::new("cargo")
         .arg("check")
         .arg("--manifest-path")
         .arg(folder.join("Cargo.toml"))
+        .args(&extra_cargo_args)
         .env("RUSTC_WRAPPER", &self_path)
         .env("WARN_REWRITE_LINT", format!("{:?}", lint))
         .env("WARN_REWRITE_DRY_RUN", if dry_run { "1" } else { "" })
         .status()
         .expect("failed to run cargo");
 
-    process::exit(status.code().unwrap_or(1));
+    if dry_run || !status.success() {
+        // In dry-run mode, or if the build failed for non-E0689 reasons, stop here.
+        process::exit(status.code().unwrap_or(1));
+    }
+
+    // Phase 2: fixup loop — resolve E0689 (ambiguous integer types) and
+    // E0658 (From/TryFrom not const-stable) left by the rewriter.
+    fixup::fixup_loop(&folder, &extra_cargo_args);
 }
 
 fn parse_lint_from_env() -> LintTarget {
