@@ -1,0 +1,1 @@
+(&rustc_middle::infer::canonical::rustc_type_ir::TyKind<TyCtxt<'_>>, &rustc_middle::infer::canonical::rustc_type_ir::TyKind<TyCtxt<'_>>)

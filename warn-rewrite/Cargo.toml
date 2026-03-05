@@ -1,0 +1,9 @@
+[package]
+name = "warn-rewrite"
+version = "0.1.0"
+edition = "2021"
+description = "Type-aware rewriter for clippy::arithmetic_side_effects and clippy::as_conversions"
+
+[[bin]]
+name = "warn-rewrite"
+path = "src/main.rs"
