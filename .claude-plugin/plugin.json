@@ -1,13 +1,26 @@
 {
   "name": "rust-diagnostics",
-  "description": "Identify and iteratively eliminate high-frequency Clippy warnings using the Li et al. (arXiv:2310.11738) Pareto-based methodology. Provides warn-identify (ranked warning distribution) and warn-reduce (iterative elimination loop that stops at 18/KLOC).",
-  "version": "1.0.0",
+  "description": "Full warning-elimination pipeline for Rust projects following Li et al. (arXiv:2310.11738). Three skills: warn-identify (measure density), warn-reduce (iterative Pareto elimination to 18/KLOC), and zerowarns (compiler-guaranteed semantic rewrite of arithmetic_side_effects and as_conversions to 0).",
+  "version": "1.1.0",
   "author": {
     "name": "Yijun Yu",
     "url": "https://github.com/yijunyu"
   },
-  "homepage": "https://github.com/yijunyu/rust-diagnostics",
-  "repository": "https://github.com/yijunyu/rust-diagnostics",
-  "license": "MIT",
-  "keywords": ["rust", "clippy", "warnings", "code-quality", "linting", "warn-identify", "warn-reduce"]
+  "homepage": "https://github.com/trusted-programming/rust-diagnostics",
+  "repository": "https://github.com/trusted-programming/rust-diagnostics",
+  "license": "Apache-2.0",
+  "keywords": ["rust", "clippy", "warnings", "code-quality", "linting", "warn-identify", "warn-reduce", "zerowarns", "arithmetic", "as-conversions"],
+  "tools": [
+    {
+      "name": "rust-diagnostics",
+      "description": "Embed Clippy diagnostics as inline comments and analyse warning-fix patches in git history.",
+      "install": "cargo install rust-diagnostics"
+    },
+    {
+      "name": "zerowarns",
+      "description": "Type-aware semantic rewriter that eliminates clippy::arithmetic_side_effects and clippy::as_conversions without LLM or #[allow] suppression.",
+      "install": "cargo +nightly install zerowarns",
+      "source": "warn-rewrite/"
+    }
+  ]
 }

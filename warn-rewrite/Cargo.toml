@@ -1,12 +1,19 @@
 [package]
-name = "warn-rewrite"
+name = "zerowarns"
 version = "0.1.0"
 edition = "2021"
-description = "Type-aware rewriter for clippy::arithmetic_side_effects and clippy::as_conversions"
+description = "Compiler-guaranteed elimination of clippy::arithmetic_side_effects and clippy::as_conversions warnings via type-aware semantic rewriting — no LLM, no #[allow] suppression."
+repository = "https://github.com/trusted-programming/rust-diagnostics"
+documentation = "https://docs.rs/zerowarns"
+keywords = ["clippy", "warnings", "arithmetic", "rewrite", "linting"]
+categories = ["development-tools", "development-tools::build-utils"]
+license = "Apache-2.0"
+readme = "README.md"
 
 [[bin]]
-name = "warn-rewrite"
+name = "zerowarns"
 path = "src/main.rs"
 
 [dependencies]
 serde_json = "1"
+walkdir = "2"

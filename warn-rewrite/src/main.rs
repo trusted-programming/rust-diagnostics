@@ -19,6 +19,7 @@ mod apply;
 mod callbacks;
 mod classify;
 mod fixup;
+mod strip_allows;
 mod visitor;
 
 use std::path::PathBuf;
@@ -138,6 +139,15 @@ fn run_direct(args: &[String]) {
 
     let folder = folder.unwrap_or_else(|| PathBuf::from("."));
     println!("warn-rewrite: running on {:?} for {:?}", folder, lint);
+
+    // Phase 0: remove crate-level `#![allow(...)]` suppressions so that the
+    // warnings become visible to the compiler during the rewrite pass.
+    if !dry_run {
+        let stripped = strip_allows::strip_project(&folder, lint);
+        if stripped > 0 {
+            println!("warn-rewrite: stripped crate-level allows from {} file(s)", stripped);
+        }
+    }
 
     // Phase 1: rewrite pass via RUSTC_WRAPPER.
     let self_path = std::env::current_exe().expect("can't find own path");
