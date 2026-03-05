@@ -13,6 +13,18 @@ Implements the Li et al. (arxiv:2310.11738) iterative workflow:
 3. Repeat until density ≤ 18/KLOC (below crates-io average of 21/KLOC)
 4. **Ask user** whether to continue with long-tail warnings at 18/KLOC
 
+## CRITICAL: Suppression is NOT a fix
+
+**Never add `#[allow]` or `#![allow]` to suppress warnings** — that hides the problem without
+fixing the code quality issue. Every warning must be eliminated by fixing the underlying code:
+- `arithmetic_side_effects` → rewrite with `wrapping_add/sub/mul`, `saturating_*`, or `checked_*`
+- `as_conversions` → replace `x as T` with `T::from(x)`, `T::try_from(x).unwrap_or_default()`, or `char::from(x)`
+- `unwrap_used` → replace `.unwrap()` with `.expect("reason why this cannot fail")`
+- `missing_errors_doc` / `missing_panics_doc` → add doc sections to the function
+
+The only acceptable `#[allow]` is a **temporary marker** while working through a file, immediately
+replaced in the same commit with the actual fix.
+
 ## Steps
 
 ### 0. Setup
@@ -310,11 +322,10 @@ determinable from context, or propagate with `?` if the containing function retu
 
 ---
 
-#### Strategy I — Per-file `#![allow]` suppression (for domain-verified lints)
+#### Strategy I — Bulk `wrapping_*` rewrite for `arithmetic_side_effects` in numeric/crypto code
 
-Use when semantic rewrites are unsafe for the domain (e.g., crypto code where overflow
-semantics are intentional) or when the lint type is a style/API choice (`exhaustive_structs`,
-`mod_module_files`, `as_conversions`, etc.).
+When arithmetic overflow is intentional (e.g., field arithmetic, hash functions, bit manipulation),
+rewrite every arithmetic operator explicitly with `wrapping_*` functions — do NOT suppress with `#![allow]`.
 
 ```python
 import os, glob
