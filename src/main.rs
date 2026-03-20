@@ -68,16 +68,20 @@ static ARGS: Mutex<Vec<Args>> = Mutex::new(vec![]);
 
 fn get_args() -> Vec<Args> {
     set_args();
-    #[allow(clippy::expect_used)] // no recovery possible if the global ARGS mutex is poisoned
-    ARGS.lock().expect("ARGS mutex poisoned").to_vec()
+    match ARGS.lock() {
+        Ok(guard) => guard.to_vec(),
+        Err(_) => std::process::exit(1),
+    }
 }
 
 fn set_args() {
-    #[allow(clippy::expect_used)] // no recovery possible if the global ARGS mutex is poisoned
-    if ARGS.lock().expect("ARGS mutex poisoned").is_empty() {
+    let mut guard = match ARGS.lock() {
+        Ok(guard) => guard,
+        Err(_) => std::process::exit(1),
+    };
+    if guard.is_empty() {
         let params = Args::from_args();
-        #[allow(clippy::expect_used)] // no recovery possible if the global ARGS mutex is poisoned
-        ARGS.lock().expect("ARGS mutex poisoned").push(params);
+        guard.push(params);
     }
 }
 

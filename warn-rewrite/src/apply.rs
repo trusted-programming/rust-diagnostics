@@ -7,9 +7,28 @@ use crate::{Rewrite, RewriteKind};
 
 /// Apply all rewrites, grouped by file, in reverse byte-offset order.
 /// Skips third-party crate files (registry, toolchain paths).
-pub fn apply_rewrites(rewrites: Vec<Rewrite>) {
+/// Returns the number of sites that were skipped and need manual review.
+pub fn apply_rewrites(rewrites: Vec<Rewrite>) -> usize {
+    let mut skipped_count = 0usize;
     let mut by_file: HashMap<PathBuf, Vec<Rewrite>> = HashMap::new();
     for r in rewrites {
+        // Report and skip entries that need manual review.
+        match &r.kind {
+            RewriteKind::SkippedConstCast { file_display, reason } => {
+                eprintln!("warn-rewrite: SKIPPED {}: {}", file_display, reason);
+                skipped_count += 1;
+                continue;
+            }
+            RewriteKind::SkippedNarrowingCast { file_display, dst } => {
+                eprintln!(
+                    "warn-rewrite: SKIPPED {}: narrowing cast to {} requires manual review",
+                    file_display, dst
+                );
+                skipped_count += 1;
+                continue;
+            }
+            _ => {}
+        }
         // Skip registry and toolchain files (absolute paths containing these components)
         if is_third_party(&r.file) {
             continue;
@@ -87,6 +106,7 @@ pub fn apply_rewrites(rewrites: Vec<Rewrite>) {
             eprintln!("warn-rewrite: write error {:?}: {}", file, e);
         }
     }
+    skipped_count
 }
 
 pub fn is_third_party(path: &std::path::Path) -> bool {
@@ -102,8 +122,9 @@ fn generate_replacement(rw: &Rewrite) -> String {
         RewriteKind::TypeFrom { dst } => {
             format!("{}::from({})", dst, rw.inner_snippet)
         }
-        RewriteKind::TryFrom { dst } => {
-            format!("{}::try_from({}).unwrap_or_default()", dst, rw.inner_snippet)
+        RewriteKind::TryFrom { .. } | RewriteKind::SkippedNarrowingCast { .. } => {
+            // Should never be reached — narrowing casts are filtered out in apply_rewrites.
+            unreachable!("narrowing casts should not reach generate_replacement")
         }
         RewriteKind::CharFrom => {
             format!("char::from({})", rw.inner_snippet)
@@ -148,9 +169,9 @@ fn generate_replacement(rw: &Rewrite) -> String {
             };
             format!("{}.wrapping_neg()", operand_wrapped)
         }
-        RewriteKind::AllowConstCast => {
-            // Prepend the allow attribute on its own line before the item.
-            "#[allow(clippy::as_conversions)]\n".to_owned()
+        RewriteKind::SkippedConstCast { .. } => {
+            // Should never be reached — filtered out in apply_rewrites.
+            unreachable!("SkippedConstCast should not reach generate_replacement")
         }
     }
 }

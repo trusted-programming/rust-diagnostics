@@ -1,7 +1,5 @@
 //! rustc_driver Callbacks implementation.
 
-#![allow(clippy::wildcard_imports)]
-
 use crate::LintTarget;
 use crate::apply::is_third_party;
 use crate::visitor::collect_rewrites;
@@ -43,8 +41,9 @@ impl Callbacks for RewriteCallbacks {
             }
         } else {
             let n = rewrites.len();
-            apply_rewrites(rewrites);
-            eprintln!("warn-rewrite: applied {} rewrites", n);
+            let skipped = apply_rewrites(rewrites);
+            let applied = n - skipped;
+            eprintln!("warn-rewrite: applied {} rewrites, skipped {} (need manual review)", applied, skipped);
         }
 
         Compilation::Continue

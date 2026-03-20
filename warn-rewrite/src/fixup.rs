@@ -36,8 +36,22 @@ pub fn fixup_loop(project_dir: &Path, cargo_args: &[String]) {
             return;
         }
 
+        // E0658 (unstable const trait) should no longer appear since we skip
+        // const-context casts rather than rewriting them.  Report any remaining
+        // ones as unexpected so the user can investigate.
+        for diag in &e0658 {
+            for span in &diag.spans {
+                if span.is_primary {
+                    eprintln!(
+                        "warn-rewrite fixup: unexpected E0658 at {}:{}..{} — {}",
+                        span.file_name, span.byte_start, span.byte_end, diag.message
+                    );
+                }
+            }
+        }
+
         eprintln!(
-            "warn-rewrite fixup iteration {}: {} E0689, {} E0658",
+            "warn-rewrite fixup iteration {}: {} E0689, {} E0658 (reported only)",
             iteration + 1,
             e0689.len(),
             e0658.len()
@@ -45,7 +59,6 @@ pub fn fixup_loop(project_dir: &Path, cargo_args: &[String]) {
 
         let mut applied = false;
         applied |= fix_e0689(project_dir, &e0689);
-        applied |= fix_e0658(project_dir, &e0658);
 
         if !applied {
             eprintln!("warn-rewrite fixup: no fixes could be applied, stopping");
@@ -289,114 +302,3 @@ fn resolve_path(project_dir: &Path, file_name: &str) -> PathBuf {
     }
 }
 
-// ── E0658 fix: revert From/TryFrom to `as` in const contexts ────────────────
-//
-// E0658 fires when `T::from(x)` or `T::try_from(x)` is used in a const context
-// where the trait method isn't const-stable. We revert to `x as T`.
-//
-// rustc points to the call expression span. We replace the whole expression.
-
-fn fix_e0658(project_dir: &Path, diags: &[&Diagnostic]) -> bool {
-    // Group by file → list of (byte_start, byte_end) spans to revert
-    let mut by_file: HashMap<PathBuf, Vec<(u32, u32, String)>> = HashMap::new();
-
-    for diag in diags {
-        // Only care about "use of unstable library feature" for from/try_from
-        if !diag.message.contains("not yet stable as a const") && !diag.message.contains("use of unstable library feature") {
-            continue;
-        }
-        for span in &diag.spans {
-            if !span.is_primary { continue; }
-            let path = resolve_path(project_dir, &span.file_name);
-            // We need the source text to figure out what to revert.
-            // Store the span; we'll read the file once per file below.
-            by_file
-                .entry(path)
-                .or_default()
-                .push((span.byte_start, span.byte_end, String::new()));
-        }
-    }
-
-    if by_file.is_empty() {
-        return false;
-    }
-
-    let mut applied = false;
-    for (file, mut spans) in by_file {
-        if !file.exists() { continue; }
-        let src_bytes = match std::fs::read(&file) {
-            Ok(b) => b,
-            Err(e) => { eprintln!("fixup E0658: read {:?}: {}", file, e); continue; }
-        };
-        let src = match std::str::from_utf8(&src_bytes) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        // Sort descending
-        spans.sort_by(|a, b| b.0.cmp(&a.0));
-        spans.dedup_by_key(|s| s.0);
-
-        let mut result = src_bytes.clone();
-        for (start, end, _) in spans {
-            let s = start as usize;
-            let e = end as usize;
-            if e > src.len() || s > e { continue; }
-            let expr = &src[s..e];
-            let Some(reverted) = revert_from_to_as(expr) else {
-                eprintln!("fixup E0658: can't revert {:?} in {:?}", expr, file);
-                continue;
-            };
-            // Apply to result (result may have shifted from earlier iterations of the outer
-            // fixup loop, but within a single file pass we work on the original offsets
-            // from the current source — result starts as the current file content).
-            let offset_delta = result.len() as i64 - src_bytes.len() as i64;
-            let rs = (s as i64 + offset_delta) as usize;
-            let re = (e as i64 + offset_delta) as usize;
-            if re > result.len() || rs > re { continue; }
-            let mut new_result = Vec::with_capacity(result.len() - (re - rs) + reverted.len());
-            new_result.extend_from_slice(&result[..rs]);
-            new_result.extend_from_slice(reverted.as_bytes());
-            new_result.extend_from_slice(&result[re..]);
-            eprintln!("fixup E0658: {:?} +{}..{} `{}` → `{}`", file, s, e, expr, reverted);
-            result = new_result;
-            applied = true;
-        }
-
-        if let Err(e) = std::fs::write(&file, &result) {
-            eprintln!("fixup: write {:?}: {}", file, e);
-        }
-    }
-    applied
-}
-
-/// Revert `T::from(x)` → `x as T`  and  `T::try_from(x).unwrap_or_default()` → `x as T`.
-/// Returns None if the expression doesn't match either pattern.
-fn revert_from_to_as(expr: &str) -> Option<String> {
-    let expr = expr.trim();
-
-    // Pattern 1: `T::from(INNER)`
-    if let Some(rest) = expr.strip_suffix(')') {
-        if let Some(idx) = rest.find("::from(") {
-            let ty = &rest[..idx];
-            let inner = &rest[idx + "::from(".len()..];
-            if !ty.is_empty() && !inner.is_empty() {
-                return Some(format!("{} as {}", inner, ty));
-            }
-        }
-        // Pattern 2: `T::try_from(INNER).unwrap_or_default()`
-        if let Some(rest2) = rest.strip_suffix(".unwrap_or_default(") {
-            if let Some(rest2) = rest2.strip_suffix(')') {
-                if let Some(idx) = rest2.find("::try_from(") {
-                    let ty = &rest2[..idx];
-                    let inner = &rest2[idx + "::try_from(".len()..];
-                    if !ty.is_empty() && !inner.is_empty() {
-                        return Some(format!("{} as {}", inner, ty));
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}

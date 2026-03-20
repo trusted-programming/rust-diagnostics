@@ -61,7 +61,12 @@ pub struct Rewrite {
 pub enum RewriteKind {
     /// `x as T` → `T::from(x)` (lossless widening)
     TypeFrom { dst: String },
-    /// `x as T` → `T::try_from(x).unwrap_or_default()` (narrowing)
+    /// Narrowing cast `x as T` — cannot be safely rewritten automatically.
+    /// `.unwrap_or_default()` silently changes semantics (returns 0 instead of
+    /// truncating).  Collected only so the driver can report for manual review.
+    SkippedNarrowingCast { file_display: String, dst: String },
+    /// Classification-only: narrowing cast detected by classify_cast.
+    /// Converted to `SkippedNarrowingCast` (with location) by the visitor.
     TryFrom { dst: String },
     /// `x as char` → `char::from(x)` (u8 only)
     CharFrom,
@@ -71,11 +76,10 @@ pub enum RewriteKind {
     WrappingAssignOp { method: &'static str, lhs_snippet: String },
     /// `-x` → `x.wrapping_neg()`
     WrappingNeg { operand_ty: String },
-    /// Insert `#[allow(clippy::as_conversions)]\n` before a const item/fn that
-    /// contains `as` casts which cannot be rewritten (From/TryFrom not const-stable).
-    /// `full_start`..`full_end` spans the existing attribute line if already present,
-    /// otherwise both equal the byte offset of the first char of the item.
-    AllowConstCast,
+    /// Placeholder for a const-context `as` cast that cannot be rewritten because
+    /// `From`/`TryFrom` are not const-stable.  Never applied — collected only so
+    /// the driver can report these sites to the user for manual review.
+    SkippedConstCast { file_display: String, reason: String },
 }
 
 fn main() {

@@ -39,7 +39,6 @@ pub fn collect_rewrites<'tcx>(tcx: TyCtxt<'tcx>, lint: LintTarget) -> Vec<Rewrit
         if let Some(body) = body {
             let in_const = is_const_context(tcx, owner);
             let mut visitor = RewriteVisitor {
-                tcx,
                 typeck,
                 source_map: tcx.sess.source_map(),
                 lint,
@@ -49,11 +48,10 @@ pub fn collect_rewrites<'tcx>(tcx: TyCtxt<'tcx>, lint: LintTarget) -> Vec<Rewrit
             };
             visitor.visit_body(body);
 
-            // If we skipped any `as` casts because this is a const context, emit a
-            // targeted `#[allow(clippy::as_conversions)]` before the item so clippy
-            // doesn't flag it when the crate-level allow is removed.
+            // If we skipped any `as` casts because this is a const context,
+            // record them so the driver can report them for manual review.
             if visitor.skipped_const_cast && lint.includes_as_conversions() {
-                if let Some(rw) = make_allow_const_cast_rewrite(tcx, owner, tcx.sess.source_map()) {
+                if let Some(rw) = make_skipped_const_cast_report(tcx, owner, tcx.sess.source_map()) {
                     all.push(rw);
                 }
             }
@@ -64,48 +62,34 @@ pub fn collect_rewrites<'tcx>(tcx: TyCtxt<'tcx>, lint: LintTarget) -> Vec<Rewrit
     all
 }
 
-/// Build an `AllowConstCast` rewrite that inserts `#[allow(clippy::as_conversions)]`
-/// before the item identified by `owner`, but only if it isn't already present.
-fn make_allow_const_cast_rewrite<'tcx>(
+/// Build a `SkippedConstCast` marker so the driver can report const-context
+/// `as` casts that cannot be automatically rewritten.
+fn make_skipped_const_cast_report<'tcx>(
     tcx: TyCtxt<'tcx>,
     owner: rustc_hir::def_id::LocalDefId,
     source_map: &SourceMap,
 ) -> Option<Rewrite> {
-    // Get the span of the item (fn/const/etc.) so we can prepend before it.
-    let node = tcx.hir_node_by_def_id(owner);
-    let item_span = node.ident()
-        .map(|_| tcx.def_span(owner))
-        .unwrap_or_else(|| tcx.def_span(owner));
-
-    // Simplest: use def_span which points at the `fn`/`const` keyword.
+    let item_span = tcx.def_span(owner);
     let lo = source_map.lookup_byte_offset(item_span.lo());
     let file = lo.sf.name.prefer_local_unconditionally().to_string();
     let path = std::path::PathBuf::from(&file);
-    let item_byte = lo.pos.0;
-    let src = lo.sf.src.as_deref()?;
-
-    // Look at the 200 bytes before the item for an existing allow
-    let check_start = item_byte.saturating_sub(200) as usize;
-    let check_end = item_byte as usize;
-    let preceding = &src[check_start..check_end];
-    if preceding.contains("allow(clippy::as_conversions)") {
-        return None; // already has it
-    }
+    let line = lo.sf.lookup_line(lo.sf.relative_position(lo.pos)).unwrap_or(0) + 1;
+    let display = format!("{}:{}", file, line);
 
     Some(Rewrite {
         file: path,
-        // Use full_start == full_end == item_byte to signal "insert before, don't replace"
-        full_start: item_byte,
-        full_end: item_byte,
+        full_start: 0,
+        full_end: 0,
         inner_snippet: String::new(),
         rhs_snippet: None,
-        kind: crate::RewriteKind::AllowConstCast,
+        kind: crate::RewriteKind::SkippedConstCast {
+            file_display: display,
+            reason: "From/TryFrom not const-stable; `as` cast requires manual review".into(),
+        },
     })
 }
 
 struct RewriteVisitor<'tcx, 'sm> {
-    #[allow(dead_code)]
-    tcx: TyCtxt<'tcx>,
     typeck: &'tcx TypeckResults<'tcx>,
     source_map: &'sm SourceMap,
     lint: LintTarget,
@@ -178,6 +162,26 @@ impl<'tcx> RewriteVisitor<'tcx, '_> {
         let dst_ty = self.typeck.expr_ty(expr);
 
         let Some(kind) = classify_cast(src_ty, dst_ty) else { return };
+
+        // Narrowing casts cannot be safely auto-rewritten: `.unwrap_or_default()`
+        // silently changes truncation semantics to zero-on-overflow.  Report for
+        // manual review instead.
+        if let RewriteKind::TryFrom { dst } = kind {
+            let lo = self.source_map.lookup_byte_offset(expr.span.lo());
+            let file_name = lo.sf.name.prefer_local_unconditionally().to_string();
+            let line = lo.sf.lookup_line(lo.sf.relative_position(lo.pos)).unwrap_or(0) + 1;
+            let file_display = format!("{}:{}", file_name, line);
+            let file = std::path::PathBuf::from(&file_name);
+            self.rewrites.push(Rewrite {
+                file,
+                full_start: 0,
+                full_end: 0,
+                inner_snippet: String::new(),
+                rhs_snippet: None,
+                kind: RewriteKind::SkippedNarrowingCast { file_display, dst },
+            });
+            return;
+        }
 
         let Some(inner_snippet) = self.snippet(inner.span) else { return };
         let Some((file, full_start, full_end)) = self.span_to_file_and_offsets(expr.span) else { return };
